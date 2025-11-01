@@ -72,8 +72,8 @@ class LocalController(ipywidgets.VBox):
         for i in range(self._joystick.get_numaxes()):
             self.axes[i].set_trait('value', _clamp(self._joystick.get_axis(i)))
         for j in range(self._joystick.get_numbuttons()):
-            self.buttons[i].set_trait('value', self._joystick.get_button(i))
-            self.buttons[i].set_trait('pressed', self._joystick.get_button(i))
+            self.buttons[j].set_trait('value', self._joystick.get_button(j))
+            self.buttons[j].set_trait('pressed', self._joystick.get_button(j))
             
             
     def run(self):

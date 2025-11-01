@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# =============================================================================
-# VL-ADK Setup Script (SAFE)
-# - No destructive removals or purges
-# - Avoids legacy driver installs (e.g., 530)
-# - Skips distro CUDA toolkit to prevent PyTorch conflicts
-# - Jetson uses system OpenCV/GStreamer; Desktop uses pip OpenCV
-# - Idempotent: only installs what’s missing
-# =============================================================================
-
-echo "VL-ADK Setup Script (safe)"
+echo "Jetbot Project Setup Script (safe)"
 echo "=========================="
 
 # ---------- Environment detection ----------
@@ -153,22 +143,31 @@ fi
 if [ "$ENVIRONMENT" = "jetson" ]; then
   echo "Linking system Python modules into venv (Jetson)..."
   site_pkgs="$(python - <<'PY'
-import sysconfig, os
-print(sysconfig.get_paths()['purelib'])
+import site
+print(site.getsitepackages()[0])
 PY
 )"
+  echo "Target site-packages: $site_pkgs"
   pushd "$site_pkgs" >/dev/null
 
-  ln -sf /usr/lib/python3/dist-packages/gi* . || true
-  ln -sf /usr/lib/python3/dist-packages/cairo* . || true
-  ln -sf /usr/lib/python3/dist-packages/gobject* . || true
+  # Link GStreamer bindings (gi, cairo, etc.)
+  for item in /usr/lib/python3/dist-packages/gi /usr/lib/python3/dist-packages/cairo; do
+    if [ -e "$item" ]; then
+      ln -sf "$item" . || true
+    fi
+  done
 
+  # Link TensorRT if available
   if [ -d "/usr/lib/python3.10/dist-packages/tensorrt" ]; then ln -sf /usr/lib/python3.10/dist-packages/tensorrt .; fi
   if [ -d "/usr/lib/python3.10/dist-packages/tensorrt_lean" ]; then ln -sf /usr/lib/python3.10/dist-packages/tensorrt_lean .; fi
   if [ -d "/usr/lib/python3.10/dist-packages/tensorrt_dispatch" ]; then ln -sf /usr/lib/python3.10/dist-packages/tensorrt_dispatch .; fi
 
   # Use system OpenCV (has GStreamer) instead of pip cv2 on Jetson
-  ln -sf /usr/lib/python3/dist-packages/cv2* . || true
+  if [ -d "/usr/lib/python3.10/dist-packages/cv2" ]; then 
+    ln -sf /usr/lib/python3.10/dist-packages/cv2 . || true
+  elif [ -e "/usr/lib/python3/dist-packages/cv2.cpython-310-aarch64-linux-gnu.so" ]; then
+    ln -sf /usr/lib/python3/dist-packages/cv2.cpython-310-aarch64-linux-gnu.so . || true
+  fi
 
   popd >/dev/null
 fi
