@@ -2,7 +2,7 @@
 import math
 import threading
 import time
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple, Union, Callable
 
 import requests
 import uvicorn
@@ -258,7 +258,7 @@ class RobotController:
         # Smooth deceleration phase
         self._smooth_stop(left_motor, right_motor, deceleration_time)
     
-    def rotate(self, angle_degrees: float, robot_speed: float = 0.5):
+    def rotate(self, angle_degrees: float, robot_speed: float = 0.4):
         """Rotate robot in place by specified angle."""
         
         # Clamp motor speed to valid range (0.0 to 1.0)
@@ -299,9 +299,21 @@ class RobotController:
         print(f"Rotating {angle_degrees:+.1f}° at {actual_speed_m_s:.3f} m/s "
               f"(robot_speed={motor_value:.2f}, constant={constant_duration:.2f}s, decel={deceleration_time:.2f}s)")
         
-        # Constant speed phase (no smooth start for rotation - causes issues)
+        # Start both motors simultaneously from static friction threshold
+        start_value = min(STATIC_FRICTION_THRESHOLD, abs(motor_value))
+        left_dir = 1 if left_motor >= 0 else -1
+        right_dir = 1 if right_motor >= 0 else -1
+        
+        # Start both motors at threshold simultaneously
+        self.robot.left_motor.value = start_value * left_dir
+        self.robot.right_motor.value = start_value * right_dir
+        time.sleep(0.05)  # Brief pause to ensure both motors start
+        
+        # Then set to target speed
         self.robot.left_motor.value = left_motor
         self.robot.right_motor.value = right_motor
+        
+        # Constant speed phase
         if constant_duration > 0:
             time.sleep(constant_duration)
         
@@ -434,6 +446,42 @@ class RobotController:
         
         # Smooth deceleration phase
         self._smooth_stop(left_motor, right_motor, deceleration_time)
+    
+    def queue_movement(self, movements: List[Tuple[Callable, ...]]):
+        """
+        Queue a list of movements to be executed sequentially.
+        
+        Args:
+            movements: List of tuples, each containing a function and its arguments.
+                        Valid functions are move_distance, move_arc, and rotate.
+                        Example: [(self.move_distance, 0.5), (self.rotate, 90)]
+        """
+        valid_funcs = {self.move_distance, self.move_arc, self.rotate}
+        
+        for i, movement in enumerate(movements):
+            if not isinstance(movement, tuple) or len(movement) == 0:
+                raise ValueError(f"Invalid movement at index {i}: must be a non-empty tuple")
+            
+            func, *args = movement
+            
+            if func not in valid_funcs:
+                raise ValueError(f"Invalid function at index {i}: must be move_distance, move_arc, or rotate")
+            
+            if func == self.move_distance:
+                if len(args) < 1 or len(args) > 2:
+                    raise ValueError(f"move_distance requires 1-2 args at index {i}")
+                func(*args)
+            elif func == self.rotate:
+                if len(args) < 1 or len(args) > 2:
+                    raise ValueError(f"rotate requires 1-2 args at index {i}")
+                func(*args)
+            elif func == self.move_arc:
+                if len(args) < 2 or len(args) > 3:
+                    raise ValueError(f"move_arc requires 2-3 args at index {i}")
+                func(*args)
+            
+            if i < len(movements) - 1:
+                time.sleep(0.5)
     
     def stop(self):
         self.robot.stop()
