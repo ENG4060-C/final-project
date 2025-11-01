@@ -19,6 +19,7 @@ LEFT_MOTOR_CHANNEL = 1
 RIGHT_MOTOR_CHANNEL = 2
 MAX_MOTOR_VALUE = 1.0         
 MIN_MOTOR_VALUE = 0.3
+STATIC_FRICTION_THRESHOLD = 0.30
 
 # Calibrated values (from testing)
 MOTOR_SPEED_FACTOR = 0.1827
@@ -113,7 +114,6 @@ class RobotController:
         step_time = acceleration_time / ACCEL_DECEL_STEPS
         
         # Calculate base motor values (target values without offset)
-        # The offset is applied as a constant throughout acceleration
         base_left_motor = left_motor_target - left_offset
         base_right_motor = right_motor_target
         
@@ -126,18 +126,20 @@ class RobotController:
         # Get offset direction (same as left motor direction)
         offset_dir = left_dir if base_left_motor != 0 else (1 if left_offset >= 0 else -1)
         
-        # Gradually increase speed from zero to target speed
-        # Use a smooth linear ramp
+        # Calculate the range we need to ramp over
+        start_motor_left = min(STATIC_FRICTION_THRESHOLD, left_base_abs)
+        start_motor_right = min(STATIC_FRICTION_THRESHOLD, right_abs)
+        
+        # Gradually increase speed from static friction threshold to target speed
         for step in range(ACCEL_DECEL_STEPS):
-            # Calculate progress: 0.0 (stopped) up to 1.0 (target speed)
+            # Calculate progress: 0.0 (at start) up to 1.0 (target speed)
             progress = (step + 1) / ACCEL_DECEL_STEPS
             
-            # Calculate base motor values (linear ramp without offset)
-            left_val = left_base_abs * progress * left_dir
-            right_val = right_abs * progress * right_dir
+            # Calculate base motor values (ramp from start to target)
+            left_val = (start_motor_left + (left_base_abs - start_motor_left) * progress) * left_dir
+            right_val = (start_motor_right + (right_abs - start_motor_right) * progress) * right_dir
             
             # Apply constant offset to left motor throughout acceleration
-            # This ensures balance correction is maintained during acceleration
             if abs(left_offset) > 0:
                 left_val += left_offset * offset_dir
                 
@@ -151,12 +153,6 @@ class RobotController:
                     overflow = abs(left_val + 1.0)
                     left_val = -1.0
                     right_val = min(0.0, right_val + overflow) * right_dir
-            
-            # For very small values, start from minimum to overcome static friction
-            if abs(left_val) < MIN_MOTOR_VALUE and abs(left_val) > 0:
-                left_val = MIN_MOTOR_VALUE * left_dir
-            if abs(right_val) < MIN_MOTOR_VALUE and abs(right_val) > 0:
-                right_val = MIN_MOTOR_VALUE * right_dir
             
             self.robot.left_motor.value = left_val
             self.robot.right_motor.value = right_val
@@ -306,6 +302,133 @@ class RobotController:
         # Constant speed phase (no smooth start for rotation - causes issues)
         self.robot.left_motor.value = left_motor
         self.robot.right_motor.value = right_motor
+        if constant_duration > 0:
+            time.sleep(constant_duration)
+        
+        # Smooth deceleration phase
+        self._smooth_stop(left_motor, right_motor, deceleration_time)
+    
+    def move_arc(self, radius_m: float, angle_degrees: float, robot_speed: float = 0.5):
+        """
+        Move robot in an arc (turning while moving forward/backward).
+        
+        Uses differential drive kinematics to follow an arc path.
+        
+        Args:
+            radius_m: Turn radius in meters. Positive = left turn, negative = right turn.
+            angle_degrees: Angle to travel along the arc in degrees.
+                          Positive = forward along arc, negative = backward along arc
+            robot_speed: Motor speed value 0.0 to 1.0 (default: 0.5)
+        """
+        # Clamp motor speed to valid range
+        motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
+        
+        # Determine direction from angle sign
+        direction = 1 if angle_degrees >= 0 else -1
+        angle_abs = abs(angle_degrees)
+        angle_rad = math.radians(angle_abs)
+        
+        # Calculate differential drive speeds for arc movement
+        min_radius = WHEELBASE_M / 2.0
+        radius_abs = abs(radius_m)
+        if radius_abs < min_radius:
+            radius_abs = min_radius
+        
+        # Calculate arc distance (distance along the arc path) using effective radius
+        effective_radius = radius_abs
+        arc_distance_m = effective_radius * angle_rad
+        
+        # Calculate actual speed and duration from motor value
+        actual_speed_m_s = motor_value * MOTOR_SPEED_FACTOR
+        duration_s = arc_distance_m / actual_speed_m_s
+        
+        # Calculate acceleration and deceleration times
+        acceleration_time = duration_s * ACCEL_DECEL_RATIO
+        deceleration_time = duration_s * ACCEL_DECEL_RATIO
+        
+        # Adjust constant duration to account for acceleration and deceleration
+        constant_duration = duration_s - (acceleration_time * 0.5) - (deceleration_time * 0.5)
+        
+        # Ensure constant duration is not negative (for very short arcs)
+        if constant_duration < 0:
+            total_phase_time = acceleration_time + deceleration_time
+            if total_phase_time > 0:
+                scale_factor = duration_s / total_phase_time
+                acceleration_time *= scale_factor * 0.5
+                deceleration_time *= scale_factor * 0.5
+                constant_duration = 0.0
+            else:
+                acceleration_time = 0.0
+                deceleration_time = 0.0
+                constant_duration = duration_s
+        
+        if radius_m > 0:
+            # Left turn: left wheel is inner (slower), right wheel is outer (faster)
+            inner_radius = radius_abs - (WHEELBASE_M / 2.0)
+            outer_radius = radius_abs + (WHEELBASE_M / 2.0)
+            
+            # Speed ratio: inner/outer = inner_radius/outer_radius
+            speed_ratio = inner_radius / outer_radius if outer_radius > 0 else 0.0
+            
+            # Ensure minimum speed for inner wheel
+            if speed_ratio < MIN_MOTOR_VALUE / motor_value:
+                speed_ratio = MIN_MOTOR_VALUE / motor_value
+            
+            # Calculate motor values (outer wheel uses full speed, inner wheel uses ratio)
+            base_left_motor = motor_value * speed_ratio * direction
+            base_right_motor = motor_value * direction
+        else:
+            # Right turn: right wheel is inner (slower), left wheel is outer (faster)
+            inner_radius = radius_abs - (WHEELBASE_M / 2.0)
+            outer_radius = radius_abs + (WHEELBASE_M / 2.0)
+            
+            # Speed ratio: inner/outer = inner_radius/outer_radius
+            speed_ratio = inner_radius / outer_radius if outer_radius > 0 else 0.0
+            
+            # Ensure minimum speed for inner wheel
+            if speed_ratio < MIN_MOTOR_VALUE / motor_value:
+                speed_ratio = MIN_MOTOR_VALUE / motor_value
+            
+            # Calculate motor values (outer wheel uses full speed, inner wheel uses ratio)
+            base_left_motor = motor_value * direction
+            base_right_motor = motor_value * speed_ratio * direction
+        
+        # Apply balance correction for forward movement only
+        offset_to_apply = 0.0
+        if direction > 0:
+            # Forward movement: apply left motor offset
+            offset_to_apply = LEFT_MOTOR_OFFSET
+            
+            # Check for overflow with left motor
+            if base_left_motor + LEFT_MOTOR_OFFSET > 1.0:
+                overflow = base_left_motor + LEFT_MOTOR_OFFSET - 1.0
+                offset_to_apply = LEFT_MOTOR_OFFSET - overflow
+        
+        # Calculate final motor values with offset
+        left_motor = base_left_motor + offset_to_apply
+        right_motor = base_right_motor
+        
+        # Handle overflow by adjusting right motor
+        if left_motor > 1.0:
+            overflow = left_motor - 1.0
+            left_motor = 1.0
+            # Reduce right motor proportionally
+            right_motor = max(0.0, right_motor - overflow) * direction
+        elif left_motor < -1.0:
+            overflow = abs(left_motor + 1.0)
+            left_motor = -1.0
+            right_motor = min(0.0, right_motor + overflow) * direction
+        
+        print(f"Moving arc: radius={radius_m:+.3f}m, angle={angle_degrees:+.1f}°, "
+              f"arc_distance={arc_distance_m:.3f}m at {actual_speed_m_s:.3f} m/s "
+              f"(robot_speed={motor_value:.2f}, duration={duration_s:.2f}s, "
+              f"accel={acceleration_time:.2f}s, constant={constant_duration:.2f}s, "
+              f"decel={deceleration_time:.2f}s)")
+        
+        # Smooth acceleration phase with constant offset applied throughout
+        self._smooth_start(left_motor, right_motor, acceleration_time, left_offset=offset_to_apply)
+        
+        # Constant speed phase
         if constant_duration > 0:
             time.sleep(constant_duration)
         
