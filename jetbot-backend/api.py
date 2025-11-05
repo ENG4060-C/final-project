@@ -19,6 +19,8 @@ from schemas import (
     QueueMovementRequest,
     SuccessResponse,
     HealthResponse,
+    MovementResult,
+    MovementStatus,
 )
 
 # Global robot controller instance
@@ -91,27 +93,27 @@ async def health_check():
     )
 
 # Move Distance Endpoint
-@app.post("/move/distance", response_model=SuccessResponse)
+@app.post("/move/distance", response_model=MovementResult)
 async def move_distance(request: MoveDistanceRequest):
     """
     Move robot forward or backward for a specified distance.
     
     - **distance_m**: Distance in meters (+ forward, - backward)
     - **robot_speed**: Motor speed value (0.3 to 1.0)
+    
+    Returns movement result with status, final ultrasonic reading, and movement info.
     """
     robot = get_robot()
     
     try:
-        robot.move_distance(
+        result = robot.move_distance(
             distance_m=request.distance_m,
             robot_speed=request.robot_speed
         )
-        return SuccessResponse(
-            message=f"Moved {request.distance_m:+.3f}m at speed {request.robot_speed:.2f}",
-            data={
-                "distance_m": request.distance_m,
-                "robot_speed": request.robot_speed
-            }
+        return MovementResult(
+            status=MovementStatus(result["status"]),
+            final_ultrasonic=result["final_ultrasonic"],
+            info=result["info"]
         )
     except Exception as e:
         raise HTTPException(
@@ -120,27 +122,27 @@ async def move_distance(request: MoveDistanceRequest):
         )
 
 # Rotate Endpoint
-@app.post("/move/rotate", response_model=SuccessResponse)
+@app.post("/move/rotate", response_model=MovementResult)
 async def rotate(request: RotateRequest):
     """
     Rotate robot in place by specified angle.
     
     - **angle_degrees**: Rotation angle (+ CCW, - CW)
     - **robot_speed**: Motor speed value (0.3 to 1.0)
+    
+    Returns movement result with status, final ultrasonic reading, and movement info.
     """
     robot = get_robot()
     
     try:
-        robot.rotate(
+        result = robot.rotate(
             angle_degrees=request.angle_degrees,
             robot_speed=request.robot_speed
         )
-        return SuccessResponse(
-            message=f"Rotated {request.angle_degrees:+.1f}° at speed {request.robot_speed:.2f}",
-            data={
-                "angle_degrees": request.angle_degrees,
-                "robot_speed": request.robot_speed
-            }
+        return MovementResult(
+            status=MovementStatus(result["status"]),
+            final_ultrasonic=result["final_ultrasonic"],
+            info=result["info"]
         )
     except Exception as e:
         raise HTTPException(
@@ -149,7 +151,7 @@ async def rotate(request: RotateRequest):
         )
 
 # Move Arc Endpoint
-@app.post("/move/arc", response_model=SuccessResponse)
+@app.post("/move/arc", response_model=MovementResult)
 async def move_arc(request: MoveArcRequest):
     """
     Move robot in an arc (turning while moving).
@@ -157,22 +159,21 @@ async def move_arc(request: MoveArcRequest):
     - **radius_m**: Turn radius in meters (+ left, - right)
     - **angle_degrees**: Angle to travel along arc (+ forward, - backward)
     - **robot_speed**: Motor speed value (0.3 to 1.0)
+    
+    Returns movement result with status, final ultrasonic reading, and movement info.
     """
     robot = get_robot()
     
     try:
-        robot.move_arc(
+        result = robot.move_arc(
             radius_m=request.radius_m,
             angle_degrees=request.angle_degrees,
             robot_speed=request.robot_speed
         )
-        return SuccessResponse(
-            message=f"Arc: radius={request.radius_m:+.3f}m, angle={request.angle_degrees:+.1f}° at speed {request.robot_speed:.2f}",
-            data={
-                "radius_m": request.radius_m,
-                "angle_degrees": request.angle_degrees,
-                "robot_speed": request.robot_speed
-            }
+        return MovementResult(
+            status=MovementStatus(result["status"]),
+            final_ultrasonic=result["final_ultrasonic"],
+            info=result["info"]
         )
     except Exception as e:
         raise HTTPException(

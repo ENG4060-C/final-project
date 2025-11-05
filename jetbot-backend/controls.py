@@ -1,7 +1,7 @@
 # JetBot Robot Controller
 import math
 import time
-from typing import List, Tuple, Callable, Dict
+from typing import List, Tuple, Callable, Dict, Optional
 
 from jetbot import Robot, Camera, UltrasonicSensor
 import cv2
@@ -47,23 +47,26 @@ class RobotController:
         self.camera = Camera(width=IMAGE_WIDTH, height=IMAGE_HEIGHT)
         self.ultrasonic = UltrasonicSensor()
     
-    def _check_ultrasonic_safety(self) -> bool:
+    def _check_ultrasonic_safety(self) -> Tuple[bool, Optional[float]]:
         """
         Check ultrasonic sensor for obstacles ahead.
         
         Returns:
-            bool: True if safe to continue (> threshold), False if obstacle detected
+            Tuple[bool, Optional[float]]: (is_safe, distance)
+                - is_safe: True if safe to continue (> threshold), False if obstacle detected
+                - distance: Distance reading in meters, or None if error/no reading
         """
         try:
             distance = self.ultrasonic.read_distance()
             if distance is not None and distance < ULTRASONIC_SAFETY_THRESHOLD_M:
-                print(f"\033[91m[SAFETY] Obstacle detected at {distance*100:.1f}cm - EMERGENCY STOP\033[0m")
+                print(f"\033[91m[SAFETY] Obstacle detected at {distance:.1f}m - EMERGENCY STOP\033[0m")
                 self.robot.stop()
-                return False
+                return False, distance
+            return True, distance
         except Exception as e:
             # If sensor fails, log warning but don't halt (fail-safe behavior)
             print(f"\033[93m[SAFETY] Ultrasonic sensor error: {e}\033[0m")
-        return True
+            return True, None
     
     def _smooth_stop(self, left_motor_start: float, right_motor_start: float, 
                      deceleration_time: float, check_safety: bool = False):
@@ -77,11 +80,13 @@ class RobotController:
             check_safety: If True, check ultrasonic sensor during deceleration (default: False)
         
         Returns:
-            bool: True if deceleration completed, False if stopped due to safety check
+            Tuple[bool, Optional[float]]: (success, distance)
+                - success: True if deceleration completed, False if stopped due to safety check
+                - distance: Distance reading in meters if stopped early, None otherwise
         """
         if deceleration_time <= 0:
             self.robot.stop()
-            return True
+            return True, None
         
         # Calculate step time
         step_time = deceleration_time / ACCEL_DECEL_STEPS
@@ -98,8 +103,9 @@ class RobotController:
             # Check safety during deceleration if requested
             check_start_time = time.time()
             if check_safety:
-                if not self._check_ultrasonic_safety():
-                    return False  # Emergency stop triggered
+                is_safe, distance = self._check_ultrasonic_safety()
+                if not is_safe:
+                    return False, distance  # Emergency stop triggered
             check_elapsed = time.time() - check_start_time
             
             # Calculate progress: 1.0 (full speed) down to 0.0 (stopped)
@@ -125,7 +131,7 @@ class RobotController:
         
         # Final stop to ensure motors are completely off
         self.robot.stop()
-        return True
+        return True, None
     
     def _smooth_start(self, left_motor_target: float, right_motor_target: float, 
                      acceleration_time: float, left_offset: float = 0.0, check_safety: bool = False):
@@ -173,7 +179,8 @@ class RobotController:
             # Check safety during acceleration if requested
             check_start_time = time.time()
             if check_safety:
-                if not self._check_ultrasonic_safety():
+                is_safe, _ = self._check_ultrasonic_safety()
+                if not is_safe:
                     return False  # Emergency stop triggered
             check_elapsed = time.time() - check_start_time
             
@@ -227,6 +234,19 @@ class RobotController:
         PRINT_PREFIX = "[MOVE_DISTANCE]"
         PREFIX_COLOR = "\033[92m"
         PREFIX_RESET = "\033[0m"
+        
+        # Validate inputs
+        if distance_m == 0:
+            final_distance = self.ultrasonic.read_distance()
+            return {
+                "status": "invalid_movement",
+                "final_ultrasonic": final_distance,
+                "info": {
+                    "distance_m": distance_m,
+                    "robot_speed": robot_speed,
+                    "direction": 1 if distance_m >= 0 else -1
+                }
+            }
         
         # Determine direction from distance sign
         direction = 1 if distance_m >= 0 else -1
@@ -303,8 +323,18 @@ class RobotController:
         
         # Ultrasonic safety check for forward movement (before starting)
         if direction > 0:
-            if not self._check_ultrasonic_safety():
-                return  # Emergency stop triggered
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "distance_m": distance_m,
+                        "robot_speed": robot_speed,
+                        "direction": direction
+                    }
+                }
         
         # Smooth acceleration phase with constant offset applied throughout
         acceleration_complete = self._smooth_start(
@@ -315,7 +345,16 @@ class RobotController:
         
         # If acceleration was stopped due to safety check, abort movement
         if not acceleration_complete:
-            return
+            final_distance = self.ultrasonic.read_distance()
+            return {
+                "status": "safety",
+                "final_ultrasonic": final_distance,
+                "info": {
+                    "distance_m": distance_m,
+                    "robot_speed": robot_speed,
+                    "direction": direction
+                }
+            }
         
         # Constant speed phase with periodic safety checks
         if constant_duration > 0:
@@ -325,8 +364,18 @@ class RobotController:
                 check_interval = 0.05  # Check every 50ms
                 start_time = time.time()
                 while True:
-                    if not self._check_ultrasonic_safety():
-                        return  # Emergency stop triggered
+                    is_safe, _ = self._check_ultrasonic_safety()
+                    if not is_safe:
+                        final_distance = self.ultrasonic.read_distance()
+                        return {
+                            "status": "safety",
+                            "final_ultrasonic": final_distance,
+                            "info": {
+                                "distance_m": distance_m,
+                                "robot_speed": robot_speed,
+                                "direction": direction
+                            }
+                        }
                     
                     # Calculate actual elapsed time (includes check duration)
                     elapsed = time.time() - start_time
@@ -343,13 +392,47 @@ class RobotController:
                 time.sleep(constant_duration)
         
         # Smooth deceleration phase with safety checks for forward movement
-        self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
+        decel_complete, decel_distance = self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
+        if not decel_complete:
+            return {
+                "status": "safety",
+                "final_ultrasonic": decel_distance,
+                "info": {
+                    "distance_m": distance_m,
+                    "robot_speed": robot_speed,
+                    "direction": direction
+                }
+            }
+        
+        # Movement completed successfully
+        final_distance = self.ultrasonic.read_distance()
+        return {
+            "status": "completed",
+            "final_ultrasonic": final_distance,
+            "info": {
+                "distance_m": distance_m,
+                "robot_speed": robot_speed,
+                "direction": direction
+            }
+        }
     
     def rotate(self, angle_degrees: float, robot_speed: float = 0.4):
         """Rotate robot in place by specified angle."""
         PRINT_PREFIX = "[ROTATE]"
         PREFIX_COLOR = "\033[95m"
         PREFIX_RESET = "\033[0m"
+        
+        # Validate inputs
+        if angle_degrees == 0:
+            final_distance = self.ultrasonic.read_distance()
+            return {
+                "status": "invalid_movement",
+                "final_ultrasonic": final_distance,
+                "info": {
+                    "angle_degrees": angle_degrees,
+                    "robot_speed": robot_speed
+                }
+            }
         
         # Clamp motor speed to valid range (0.0 to 1.0)
         motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
@@ -407,8 +490,19 @@ class RobotController:
         if constant_duration > 0:
             time.sleep(constant_duration)
         
-        # Smooth deceleration phase
-        self._smooth_stop(left_motor, right_motor, deceleration_time)
+        # Smooth deceleration phase (no safety check for rotation)
+        decel_complete, _ = self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=False)
+        
+        # Rotation completed successfully
+        final_distance = self.ultrasonic.read_distance()
+        return {
+            "status": "completed",
+            "final_ultrasonic": final_distance,
+            "info": {
+                "angle_degrees": angle_degrees,
+                "robot_speed": robot_speed
+            }
+        }
     
     def move_arc(self, radius_m: float, angle_degrees: float, robot_speed: float = 0.5):
         """
@@ -425,6 +519,19 @@ class RobotController:
         PRINT_PREFIX = "[MOVE_ARC]"
         PREFIX_COLOR = "\033[94m"
         PREFIX_RESET = "\033[0m"
+        
+        # Validate inputs
+        if angle_degrees == 0 or radius_m == 0:
+            final_distance = self.ultrasonic.read_distance()
+            return {
+                "status": "invalid_movement",
+                "final_ultrasonic": final_distance,
+                "info": {
+                    "radius_m": radius_m,
+                    "angle_degrees": angle_degrees,
+                    "robot_speed": robot_speed
+                }
+            }
         
         # Clamp motor speed to valid range
         motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
@@ -522,8 +629,18 @@ class RobotController:
         
         # Ultrasonic safety check for forward movement (before starting)
         if direction > 0:
-            if not self._check_ultrasonic_safety():
-                return
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "radius_m": radius_m,
+                        "angle_degrees": angle_degrees,
+                        "robot_speed": robot_speed
+                    }
+                }
         
         # Start both motors simultaneously from static friction threshold
         left_abs = abs(left_motor)
@@ -539,15 +656,35 @@ class RobotController:
         
         # Check safety immediately after starting motors (for forward movement)
         if direction > 0:
-            if not self._check_ultrasonic_safety():
-                return  # Emergency stop triggered
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "radius_m": radius_m,
+                        "angle_degrees": angle_degrees,
+                        "robot_speed": robot_speed
+                    }
+                }
         
         time.sleep(0.05)
         
         # Check safety again before reaching full speed (for forward movement)
         if direction > 0:
-            if not self._check_ultrasonic_safety():
-                return  # Emergency stop triggered
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "radius_m": radius_m,
+                        "angle_degrees": angle_degrees,
+                        "robot_speed": robot_speed
+                    }
+                }
         
         # Then set to target speed
         self.robot.left_motor.value = left_motor
@@ -555,8 +692,18 @@ class RobotController:
         
         # Check safety after reaching target speed (for forward movement)
         if direction > 0:
-            if not self._check_ultrasonic_safety():
-                return  # Emergency stop triggered
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "radius_m": radius_m,
+                        "angle_degrees": angle_degrees,
+                        "robot_speed": robot_speed
+                    }
+                }
         
         # Constant speed phase with periodic safety checks
         if constant_duration > 0:
@@ -567,8 +714,18 @@ class RobotController:
                 start_time = time.time()
                 while True:
                     # Check safety (this takes time, which is accounted for in elapsed)
-                    if not self._check_ultrasonic_safety():
-                        return  # Emergency stop triggered
+                    is_safe, _ = self._check_ultrasonic_safety()
+                    if not is_safe:
+                        final_distance = self.ultrasonic.read_distance()
+                        return {
+                            "status": "safety",
+                            "final_ultrasonic": final_distance,
+                            "info": {
+                                "radius_m": radius_m,
+                                "angle_degrees": angle_degrees,
+                                "robot_speed": robot_speed
+                            }
+                        }
                     
                     # Calculate actual elapsed time (includes check duration)
                     elapsed = time.time() - start_time
@@ -585,7 +742,29 @@ class RobotController:
                 time.sleep(constant_duration)
         
         # Smooth deceleration phase with safety checks for forward movement
-        self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
+        decel_complete, decel_distance = self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
+        if not decel_complete:
+            return {
+                "status": "safety",
+                "final_ultrasonic": decel_distance,
+                "info": {
+                    "radius_m": radius_m,
+                    "angle_degrees": angle_degrees,
+                    "robot_speed": robot_speed
+                }
+            }
+        
+        # Movement completed successfully
+        final_distance = self.ultrasonic.read_distance()
+        return {
+            "status": "completed",
+            "final_ultrasonic": final_distance,
+            "info": {
+                "radius_m": radius_m,
+                "angle_degrees": angle_degrees,
+                "robot_speed": robot_speed
+            }
+        }
     
     def queue_movement(self, movements: List[Tuple[Callable, ...]]):
         """

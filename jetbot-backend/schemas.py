@@ -210,3 +210,17 @@ class HealthResponse(BaseModel):
     status: str
     robot_initialized: bool
 
+
+class MovementStatus(str, Enum):
+    """Enum for movement status."""
+    COMPLETED = "completed"
+    SAFETY = "safety"
+    INVALID_MOVEMENT = "invalid_movement"
+
+
+class MovementResult(BaseModel):
+    """Response model for movement operations."""
+    status: MovementStatus = Field(..., description="Status of the movement")
+    final_ultrasonic: Optional[float] = Field(None, description="Final ultrasonic reading in meters")
+    info: dict = Field(..., description="Movement parameters that were executed")
+
