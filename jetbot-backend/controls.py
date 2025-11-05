@@ -36,16 +36,35 @@ class RobotController:
     Controller for JetBot hardware providing motor and camera control.
     """
     
-    def __init__(self):
-        """Initialize robot and camera hardware."""
+    def __init__(self, robot: Optional[Robot] = None, camera: Optional[Camera] = None, 
+                 ultrasonic: Optional[UltrasonicSensor] = None):
+        """
+        Initialize robot and camera hardware.
+        
+        Args:
+            robot: Optional Robot instance (will be created if not provided)
+            camera: Optional Camera instance (will be created if not provided)
+            ultrasonic: Optional UltrasonicSensor instance (will be created if not provided)
+        """
         print("Initializing RobotController...")
-        self.robot = Robot(
-            i2c_bus=I2C_BUS, 
-            left_motor_channel=LEFT_MOTOR_CHANNEL, 
-            right_motor_channel=RIGHT_MOTOR_CHANNEL
-        )
-        self.camera = Camera(width=IMAGE_WIDTH, height=IMAGE_HEIGHT)
-        self.ultrasonic = UltrasonicSensor()
+        if robot is not None:
+            self.robot = robot
+        else:
+            self.robot = Robot(
+                i2c_bus=I2C_BUS, 
+                left_motor_channel=LEFT_MOTOR_CHANNEL, 
+                right_motor_channel=RIGHT_MOTOR_CHANNEL
+            )
+        
+        if camera is not None:
+            self.camera = camera
+        else:
+            self.camera = Camera(width=IMAGE_WIDTH, height=IMAGE_HEIGHT)
+        
+        if ultrasonic is not None:
+            self.ultrasonic = ultrasonic
+        else:
+            self.ultrasonic = UltrasonicSensor()
     
     def _check_ultrasonic_safety(self) -> Tuple[bool, Optional[float]]:
         """
