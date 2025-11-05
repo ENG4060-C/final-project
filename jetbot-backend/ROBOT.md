@@ -1,4 +1,4 @@
-# JetBot Motor Speed Guide
+# JetBot Robot Documentation
 
 ## Motor Speed Values Explained
 
@@ -85,6 +85,27 @@ controller.rotate(-45, 1.0)
 - **Left Motor Channel**: 1
 - **Right Motor Channel**: 2
 - **Camera Resolution**: 1640x1232
+
+### Ultrasonic Sensor (HC-SR04)
+
+Working setup configuration:
+
+**Power:**
+- **VCC**: 5V (Physical pin 4)
+- **GND**: Physical pin 9
+- Common ground shared with Jetson
+
+**Signal Pins:**
+- **TRIG**: BCM GPIO 12 (Physical pin 32)
+  - Pinmux configuration: `sudo busybox devmem 0x2434080 w 0x5`
+- **ECHO**: BCM GPIO 25 (Physical pin 22)
+  - Connected through resistor divider (level-shifted to 3.3V)
+
+**Notes:**
+- Powered at 5V for full range
+- ECHO pin must be level-shifted from 5V to 3.3V for Jetson GPIO compatibility
+- TRIG pin requires pinmux configuration before use (run devmem command above)
+- Test script: `test_ultrasonic.py`
 
 ## Implementation Details
 

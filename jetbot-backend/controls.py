@@ -3,7 +3,7 @@ import math
 import time
 from typing import List, Tuple, Callable, Dict
 
-from jetbot import Robot, Camera
+from jetbot import Robot, Camera, UltrasonicSensor
 import cv2
 
 from schemas import (
@@ -16,6 +16,7 @@ from schemas import (
     MAX_MOTOR_VALUE,
     MIN_MOTOR_VALUE,
     STATIC_FRICTION_THRESHOLD,
+    ULTRASONIC_SAFETY_THRESHOLD_M,
     
     # Calibrated values
     MOTOR_SPEED_FACTOR,
@@ -28,6 +29,7 @@ from schemas import (
     OSHOOT_CORRECTION_SLOPE,
     OSHOOT_CORRECTION_MAX,
 )
+
 
 class RobotController:
     """
@@ -43,9 +45,28 @@ class RobotController:
             right_motor_channel=RIGHT_MOTOR_CHANNEL
         )
         self.camera = Camera(width=IMAGE_WIDTH, height=IMAGE_HEIGHT)
+        self.ultrasonic = UltrasonicSensor()
+    
+    def _check_ultrasonic_safety(self) -> bool:
+        """
+        Check ultrasonic sensor for obstacles ahead.
+        
+        Returns:
+            bool: True if safe to continue (> threshold), False if obstacle detected
+        """
+        try:
+            distance = self.ultrasonic.read_distance()
+            if distance is not None and distance < ULTRASONIC_SAFETY_THRESHOLD_M:
+                print(f"\033[91m[SAFETY] Obstacle detected at {distance*100:.1f}cm - EMERGENCY STOP\033[0m")
+                self.robot.stop()
+                return False
+        except Exception as e:
+            # If sensor fails, log warning but don't halt (fail-safe behavior)
+            print(f"\033[93m[SAFETY] Ultrasonic sensor error: {e}\033[0m")
+        return True
     
     def _smooth_stop(self, left_motor_start: float, right_motor_start: float, 
-                     deceleration_time: float):
+                     deceleration_time: float, check_safety: bool = False):
         """
         Gradually reduce motor speed to zero over the deceleration period.
         
@@ -53,10 +74,14 @@ class RobotController:
             left_motor_start: Initial left motor value
             right_motor_start: Initial right motor value
             deceleration_time: Time in seconds for deceleration
+            check_safety: If True, check ultrasonic sensor during deceleration (default: False)
+        
+        Returns:
+            bool: True if deceleration completed, False if stopped due to safety check
         """
         if deceleration_time <= 0:
             self.robot.stop()
-            return
+            return True
         
         # Calculate step time
         step_time = deceleration_time / ACCEL_DECEL_STEPS
@@ -70,6 +95,13 @@ class RobotController:
         # Gradually reduce speed from full speed to zero
         # Use a smooth linear ramp
         for step in range(ACCEL_DECEL_STEPS):
+            # Check safety during deceleration if requested
+            check_start_time = time.time()
+            if check_safety:
+                if not self._check_ultrasonic_safety():
+                    return False  # Emergency stop triggered
+            check_elapsed = time.time() - check_start_time
+            
             # Calculate progress: 1.0 (full speed) down to 0.0 (stopped)
             progress = 1.0 - (step / ACCEL_DECEL_STEPS)
             
@@ -85,13 +117,18 @@ class RobotController:
             
             self.robot.left_motor.value = left_val
             self.robot.right_motor.value = right_val
-            time.sleep(step_time)
+            
+            # Calculate remaining time for this step (only accounting for ultrasonic check time)
+            remaining_step_time = step_time - check_elapsed
+            if remaining_step_time > 0:
+                time.sleep(remaining_step_time)
         
         # Final stop to ensure motors are completely off
         self.robot.stop()
+        return True
     
     def _smooth_start(self, left_motor_target: float, right_motor_target: float, 
-                     acceleration_time: float, left_offset: float = 0.0):
+                     acceleration_time: float, left_offset: float = 0.0, check_safety: bool = False):
         """
         Gradually increase motor speed from zero to target speed over the acceleration period.
         
@@ -101,11 +138,15 @@ class RobotController:
             acceleration_time: Time in seconds for acceleration
             left_offset: Constant offset to apply to left motor during acceleration (default: 0.0)
                         This offset is applied as a constant value throughout acceleration, not proportional.
+            check_safety: If True, check ultrasonic sensor during acceleration (default: False)
+        
+        Returns:
+            bool: True if acceleration completed, False if stopped due to safety check
         """
         if acceleration_time <= 0:
             self.robot.left_motor.value = left_motor_target
             self.robot.right_motor.value = right_motor_target
-            return
+            return True
         
         # Calculate step time
         step_time = acceleration_time / ACCEL_DECEL_STEPS
@@ -127,8 +168,15 @@ class RobotController:
         start_motor_left = min(STATIC_FRICTION_THRESHOLD, left_base_abs)
         start_motor_right = min(STATIC_FRICTION_THRESHOLD, right_abs)
         
-        # Gradually increase speed from static friction threshold to target speed
+        # Gradually increase speed from static friction threshold to target speed while checking safety
         for step in range(ACCEL_DECEL_STEPS):
+            # Check safety during acceleration if requested
+            check_start_time = time.time()
+            if check_safety:
+                if not self._check_ultrasonic_safety():
+                    return False  # Emergency stop triggered
+            check_elapsed = time.time() - check_start_time
+            
             # Calculate progress: 0.0 (at start) up to 1.0 (target speed)
             progress = (step + 1) / ACCEL_DECEL_STEPS
             
@@ -153,11 +201,16 @@ class RobotController:
             
             self.robot.left_motor.value = left_val
             self.robot.right_motor.value = right_val
-            time.sleep(step_time)
+            
+            # Calculate remaining time for this step (only accounting for ultrasonic check time)
+            remaining_step_time = step_time - check_elapsed
+            if remaining_step_time > 0:
+                time.sleep(remaining_step_time)
         
         # Final set to ensure we reach exact target values
         self.robot.left_motor.value = left_motor_target
         self.robot.right_motor.value = right_motor_target
+        return True
     
     def move_distance(self, distance_m: float, robot_speed: float = 0.5) -> Dict[str, float]:
         """
@@ -248,15 +301,49 @@ class RobotController:
               f"accel={acceleration_time:.2f}s, constant={constant_duration:.2f}s, "
               f"decel={deceleration_time:.2f}s){PREFIX_RESET}")
         
+        # Ultrasonic safety check for forward movement (before starting)
+        if direction > 0:
+            if not self._check_ultrasonic_safety():
+                return  # Emergency stop triggered
+        
         # Smooth acceleration phase with constant offset applied throughout
-        self._smooth_start(left_motor, right_motor, acceleration_time, left_offset=offset_to_apply)
+        acceleration_complete = self._smooth_start(
+            left_motor, right_motor, acceleration_time, 
+            left_offset=offset_to_apply, 
+            check_safety=(direction > 0)
+        )
         
-        # Constant speed phase
+        # If acceleration was stopped due to safety check, abort movement
+        if not acceleration_complete:
+            return
+        
+        # Constant speed phase with periodic safety checks
         if constant_duration > 0:
-            time.sleep(constant_duration)
+            if direction > 0:
+                # Forward movement - check safety periodically
+                # Use wall-clock time to account for time spent in safety checks
+                check_interval = 0.05  # Check every 50ms
+                start_time = time.time()
+                while True:
+                    if not self._check_ultrasonic_safety():
+                        return  # Emergency stop triggered
+                    
+                    # Calculate actual elapsed time (includes check duration)
+                    elapsed = time.time() - start_time
+                    if elapsed >= constant_duration:
+                        break
+                    
+                    # Sleep for remaining time until next check or end of phase
+                    remaining = constant_duration - elapsed
+                    sleep_time = min(check_interval, remaining)
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+            else:
+                # Backward movement - no safety check
+                time.sleep(constant_duration)
         
-        # Smooth deceleration phase
-        self._smooth_stop(left_motor, right_motor, deceleration_time)
+        # Smooth deceleration phase with safety checks for forward movement
+        self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
     
     def rotate(self, angle_degrees: float, robot_speed: float = 0.4):
         """Rotate robot in place by specified angle."""
@@ -433,6 +520,11 @@ class RobotController:
               f"arc_distance={arc_distance_m:.3f}m at {actual_speed_m_s:.3f} m/s "
               f"(robot_speed={motor_value:.2f}, constant={constant_duration:.2f}s, decel={deceleration_time:.2f}s){PREFIX_RESET}")
         
+        # Ultrasonic safety check for forward movement (before starting)
+        if direction > 0:
+            if not self._check_ultrasonic_safety():
+                return
+        
         # Start both motors simultaneously from static friction threshold
         left_abs = abs(left_motor)
         right_abs = abs(right_motor)
@@ -444,18 +536,56 @@ class RobotController:
         # Start both motors at threshold simultaneously
         self.robot.left_motor.value = start_left * left_dir
         self.robot.right_motor.value = start_right * right_dir
+        
+        # Check safety immediately after starting motors (for forward movement)
+        if direction > 0:
+            if not self._check_ultrasonic_safety():
+                return  # Emergency stop triggered
+        
         time.sleep(0.05)
+        
+        # Check safety again before reaching full speed (for forward movement)
+        if direction > 0:
+            if not self._check_ultrasonic_safety():
+                return  # Emergency stop triggered
         
         # Then set to target speed
         self.robot.left_motor.value = left_motor
         self.robot.right_motor.value = right_motor
         
-        # Constant speed phase
-        if constant_duration > 0:
-            time.sleep(constant_duration)
+        # Check safety after reaching target speed (for forward movement)
+        if direction > 0:
+            if not self._check_ultrasonic_safety():
+                return  # Emergency stop triggered
         
-        # Smooth deceleration phase
-        self._smooth_stop(left_motor, right_motor, deceleration_time)
+        # Constant speed phase with periodic safety checks
+        if constant_duration > 0:
+            if direction > 0:
+                # Forward movement - check safety periodically
+                # Use wall-clock time to account for time spent in safety checks
+                check_interval = 0.05  # Check every 50ms
+                start_time = time.time()
+                while True:
+                    # Check safety (this takes time, which is accounted for in elapsed)
+                    if not self._check_ultrasonic_safety():
+                        return  # Emergency stop triggered
+                    
+                    # Calculate actual elapsed time (includes check duration)
+                    elapsed = time.time() - start_time
+                    if elapsed >= constant_duration:
+                        break
+                    
+                    # Sleep for remaining time until next check or end of phase
+                    remaining = constant_duration - elapsed
+                    sleep_time = min(check_interval, remaining)
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+            else:
+                # Backward movement - no safety check
+                time.sleep(constant_duration)
+        
+        # Smooth deceleration phase with safety checks for forward movement
+        self._smooth_stop(left_motor, right_motor, deceleration_time, check_safety=(direction > 0))
     
     def queue_movement(self, movements: List[Tuple[Callable, ...]]):
         """
