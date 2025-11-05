@@ -1,43 +1,40 @@
-import os, time
+import os
 import cv2
-import torch
 from ultralytics import YOLO
 
-MODEL = os.environ.get("YOLOE_MODEL", "yolov8n.pt")
-CONF  = float(os.environ.get("YOLOE_CONF", 0.25))
-IOU   = float(os.environ.get("YOLOE_IOU", 0.45))
-DEVICE = os.environ.get("YOLOE_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+# Get the directory where webcam.py is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(SCRIPT_DIR, "yolov8n.pt")
 
-model = YOLO(MODEL).to(DEVICE)
-model.fuse()
+def main():
+    # Initialize webcam
+    cap = cv2.VideoCapture(0)
+    
+    # Load YOLO model from the correct path
+    model = YOLO(MODEL_PATH)
+    
+    while cap.isOpened():
+        # Read frame
+        success, frame = cap.read()
+        if success:
+            # Run YOLOv8 inference on the frame
+            results = model(frame)
 
-# 0 = default laptop cam; try 1/2 if you have multiple
-cap = cv2.VideoCapture(0)
+            # Visualize the results on the frame
+            annotated_frame = results[0].plot()
 
-if not cap.isOpened():
-    raise SystemExit("Could not open webcam. Try a different index (1, 2) or grant camera permission.")
+            # Display the annotated frame
+            cv2.imshow("YOLOv8 Inference", annotated_frame)
 
-while True:
-    ok, frame = cap.read()
-    if not ok: 
-        break
+            # Break the loop if 'q' is pressed
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+        else:
+            break
 
-    # Inference (BGR frame is fine)
-    results = model(frame, conf=CONF, iou=IOU, device=DEVICE, verbose=False)[0]
+    # Release the video capture object and close the display window
+    cap.release()
+    cv2.destroyAllWindows()
 
-    # Draw boxes
-    if results.boxes is not None and len(results.boxes) > 0:
-        names = getattr(model, "names", {})
-        for xyxy, c, k in zip(results.boxes.xyxy, results.boxes.conf, results.boxes.cls):
-            x1, y1, x2, y2 = map(int, xyxy.tolist())
-            cls_name = names.get(int(k), str(int(k)))
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, f"{cls_name} {float(c):.2f}", (x1, max(0, y1-5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-    cv2.imshow("YOLOE Webcam (press q to quit)", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()

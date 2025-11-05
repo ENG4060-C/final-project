@@ -1,9 +1,9 @@
-# yoloe-backend/main.py
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
 from PIL import Image
 import base64, io, os
+from websocket import setup_websocket
 
 import torch
 from ultralytics import YOLO
@@ -37,7 +37,7 @@ class ModelInfo(BaseModel):
 # --------- Detector ---------
 class YOLOEDetector:
     def __init__(self):
-        self.model_path = os.environ.get("YOLOE_MODEL", "yolov8n.pt")
+        self.model_path = os.environ.get("YOLOE_MODEL", "yoloe-backend/yolov8n.pt")
         self.conf_threshold = float(os.environ.get("YOLOE_CONF", 0.25))
         self.iou_threshold = float(os.environ.get("YOLOE_IOU", 0.45))
         self.device = os.environ.get("YOLOE_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
@@ -115,6 +115,8 @@ async def predict_b64(payload: Base64Image):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
     return get_detector().predict_pil(image)
+
+telemetry_manager = setup_websocket(app)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
