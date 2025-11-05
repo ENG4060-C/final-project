@@ -30,13 +30,13 @@ async def test_websocket():
     print("Connecting to WebSocket server...")
     print(f"URI: {uri}")
     if not DISPLAY_AVAILABLE:
-        print("⚠ Display not available - images will be saved to 'websocket_frames/' directory")
+        print("Display not available - images will be saved to 'websocket_frames/' directory")
         os.makedirs("websocket_frames", exist_ok=True)
     print("Press Ctrl+C to exit\n")
     
     try:
         async with connect(uri) as websocket:
-            print("✓ Connected to WebSocket server\n")
+            print("Connected to WebSocket server\n")
             
             frame_count = 0
             

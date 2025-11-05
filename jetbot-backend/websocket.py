@@ -65,7 +65,8 @@ class WebSocketServer:
                     # Timeout is fine, just continue
                     continue
         except WebSocketDisconnect:
-            self.active_connections.remove(websocket)
+            # Use discard() instead of remove() to avoid KeyError if already removed
+            self.active_connections.discard(websocket)
             print(f"WebSocket client disconnected. Total clients: {len(self.active_connections)}")
             
             # Stop broadcast task if no clients connected
