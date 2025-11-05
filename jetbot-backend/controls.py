@@ -174,6 +174,9 @@ class RobotController:
             robot_speed: Motor speed value 0.0 to 1.0 (default: 0.5 = half speed)
         
         """
+        PRINT_PREFIX = "[MOVE_DISTANCE]"
+        PREFIX_COLOR = "\033[92m"
+        PREFIX_RESET = "\033[0m"
         
         # Determine direction from distance sign
         direction = 1 if distance_m >= 0 else -1
@@ -243,10 +246,10 @@ class RobotController:
             left_motor = -1.0
             right_motor = min(0.0, -motor_value + overflow) * direction
         
-        print(f"Moving {distance_m:+.3f}m at {actual_speed_m_s:.3f} m/s "
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Moving {distance_m:+.3f}m at {actual_speed_m_s:.3f} m/s "
               f"(robot_speed={motor_value_signed:+.2f}, duration={duration_s:.2f}s, "
               f"accel={acceleration_time:.2f}s, constant={constant_duration:.2f}s, "
-              f"decel={deceleration_time:.2f}s)")
+              f"decel={deceleration_time:.2f}s){PREFIX_RESET}")
         
         # Smooth acceleration phase with constant offset applied throughout
         self._smooth_start(left_motor, right_motor, acceleration_time, left_offset=offset_to_apply)
@@ -260,6 +263,9 @@ class RobotController:
     
     def rotate(self, angle_degrees: float, robot_speed: float = 0.4):
         """Rotate robot in place by specified angle."""
+        PRINT_PREFIX = "[ROTATE]"
+        PREFIX_COLOR = "\033[95m"
+        PREFIX_RESET = "\033[0m"
         
         # Clamp motor speed to valid range (0.0 to 1.0)
         motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
@@ -296,8 +302,8 @@ class RobotController:
             left_motor = -motor_value
             right_motor = motor_value
         
-        print(f"Rotating {angle_degrees:+.1f}° at {actual_speed_m_s:.3f} m/s "
-              f"(robot_speed={motor_value:.2f}, constant={constant_duration:.2f}s, decel={deceleration_time:.2f}s)")
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Rotating {angle_degrees:+.1f}° at {actual_speed_m_s:.3f} m/s "
+              f"(robot_speed={motor_value:.2f}, constant={constant_duration:.2f}s, decel={deceleration_time:.2f}s){PREFIX_RESET}")
         
         # Start both motors simultaneously from static friction threshold
         start_value = min(STATIC_FRICTION_THRESHOLD, abs(motor_value))
@@ -332,6 +338,10 @@ class RobotController:
                           Positive = forward along arc, negative = backward along arc
             robot_speed: Motor speed value 0.0 to 1.0 (default: 0.5)
         """
+        PRINT_PREFIX = "[MOVE_ARC]"
+        PREFIX_COLOR = "\033[94m"
+        PREFIX_RESET = "\033[0m"
+        
         # Clamp motor speed to valid range
         motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
         
@@ -354,25 +364,16 @@ class RobotController:
         actual_speed_m_s = motor_value * MOTOR_SPEED_FACTOR
         duration_s = arc_distance_m / actual_speed_m_s
         
-        # Calculate acceleration and deceleration times
-        acceleration_time = duration_s * ACCEL_DECEL_RATIO
-        deceleration_time = duration_s * ACCEL_DECEL_RATIO
+        # Calculate deceleration time
+        deceleration_time = max(MIN_ACCEL_DECEL_TIME, duration_s * ACCEL_DECEL_RATIO)
         
-        # Adjust constant duration to account for acceleration and deceleration
-        constant_duration = duration_s - (acceleration_time * 0.5) - (deceleration_time * 0.5)
+        # Calculate constant duration accounting for deceleration only
+        constant_duration = duration_s - (deceleration_time * 0.5)
         
-        # Ensure constant duration is not negative (for very short arcs)
+        # Ensure constant duration is not negative
         if constant_duration < 0:
-            total_phase_time = acceleration_time + deceleration_time
-            if total_phase_time > 0:
-                scale_factor = duration_s / total_phase_time
-                acceleration_time *= scale_factor * 0.5
-                deceleration_time *= scale_factor * 0.5
-                constant_duration = 0.0
-            else:
-                acceleration_time = 0.0
-                deceleration_time = 0.0
-                constant_duration = duration_s
+            constant_duration = duration_s * 0.1
+            deceleration_time = duration_s - constant_duration
         
         if radius_m > 0:
             # Left turn: left wheel is inner (slower), right wheel is outer (faster)
@@ -431,14 +432,26 @@ class RobotController:
             left_motor = -1.0
             right_motor = min(0.0, right_motor + overflow) * direction
         
-        print(f"Moving arc: radius={radius_m:+.3f}m, angle={angle_degrees:+.1f}°, "
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Moving arc: radius={radius_m:+.3f}m, angle={angle_degrees:+.1f}°, "
               f"arc_distance={arc_distance_m:.3f}m at {actual_speed_m_s:.3f} m/s "
-              f"(robot_speed={motor_value:.2f}, duration={duration_s:.2f}s, "
-              f"accel={acceleration_time:.2f}s, constant={constant_duration:.2f}s, "
-              f"decel={deceleration_time:.2f}s)")
+              f"(robot_speed={motor_value:.2f}, constant={constant_duration:.2f}s, decel={deceleration_time:.2f}s){PREFIX_RESET}")
         
-        # Smooth acceleration phase with constant offset applied throughout
-        self._smooth_start(left_motor, right_motor, acceleration_time, left_offset=offset_to_apply)
+        # Start both motors simultaneously from static friction threshold
+        left_abs = abs(left_motor)
+        right_abs = abs(right_motor)
+        start_left = min(STATIC_FRICTION_THRESHOLD, left_abs)
+        start_right = min(STATIC_FRICTION_THRESHOLD, right_abs)
+        left_dir = 1 if left_motor >= 0 else -1
+        right_dir = 1 if right_motor >= 0 else -1
+        
+        # Start both motors at threshold simultaneously
+        self.robot.left_motor.value = start_left * left_dir
+        self.robot.right_motor.value = start_right * right_dir
+        time.sleep(0.05)
+        
+        # Then set to target speed
+        self.robot.left_motor.value = left_motor
+        self.robot.right_motor.value = right_motor
         
         # Constant speed phase
         if constant_duration > 0:
@@ -456,28 +469,32 @@ class RobotController:
                         Valid functions are move_distance, move_arc, and rotate.
                         Example: [(self.move_distance, 0.5), (self.rotate, 90)]
         """
+        PRINT_PREFIX = "[QUEUE_MOVEMENT]"
+        PREFIX_COLOR = "\033[92m"
+        PREFIX_RESET = "\033[0m"
+        
         valid_funcs = {self.move_distance, self.move_arc, self.rotate}
         
         for i, movement in enumerate(movements):
             if not isinstance(movement, tuple) or len(movement) == 0:
-                raise ValueError(f"Invalid movement at index {i}: must be a non-empty tuple")
+                raise ValueError(f"{PREFIX_COLOR}{PRINT_PREFIX} Invalid movement at index {i}: must be a non-empty tuple{PREFIX_RESET}")
             
             func, *args = movement
             
             if func not in valid_funcs:
-                raise ValueError(f"Invalid function at index {i}: must be move_distance, move_arc, or rotate")
+                raise ValueError(f"{PREFIX_COLOR}{PRINT_PREFIX} Invalid function at index {i}: must be move_distance, move_arc, or rotate{PREFIX_RESET}")
             
             if func == self.move_distance:
                 if len(args) < 1 or len(args) > 2:
-                    raise ValueError(f"move_distance requires 1-2 args at index {i}")
+                    raise ValueError(f"{PREFIX_COLOR}{PRINT_PREFIX} move_distance requires 1-2 args at index {i}{PREFIX_RESET}")
                 func(*args)
             elif func == self.rotate:
                 if len(args) < 1 or len(args) > 2:
-                    raise ValueError(f"rotate requires 1-2 args at index {i}")
+                    raise ValueError(f"{PREFIX_COLOR}{PRINT_PREFIX} rotate requires 1-2 args at index {i}{PREFIX_RESET}")
                 func(*args)
             elif func == self.move_arc:
                 if len(args) < 2 or len(args) > 3:
-                    raise ValueError(f"move_arc requires 2-3 args at index {i}")
+                    raise ValueError(f"{PREFIX_COLOR}{PRINT_PREFIX} move_arc requires 2-3 args at index {i}{PREFIX_RESET}")
                 func(*args)
             
             if i < len(movements) - 1:
@@ -485,4 +502,58 @@ class RobotController:
     
     def stop(self):
         self.robot.stop()
-        print("Motors stopped")
+        print("[STOP] Motors stopped")
+
+if __name__ == "__main__":
+    """
+    Test script for RobotController movement capabilities.
+    Draws a square (0.25m sides) and a full circle (0.25m radius).
+    """
+    print("="*60)
+    print("JETBOT MOVEMENT TESTS")
+    print("="*60)
+    
+    # Initialize robot controller
+    print("\nInitializing robot controller...")
+    controller = RobotController()
+    print("Robot controller initialized\n")
+    
+    # Test 1: Draw a square with 0.25m sides
+    print("="*60)
+    print("TEST 1: Drawing a square (0.25m sides)")
+    print("="*60)
+    
+    square_movements = [
+        (controller.move_distance, 0.25),
+        (controller.rotate, 90),
+        (controller.move_distance, 0.25),
+        (controller.rotate, 90),
+        (controller.move_distance, 0.25),
+        (controller.rotate, 90),
+        (controller.move_distance, 0.25),
+        (controller.rotate, 90),
+    ]
+    
+    print("\nExecuting square movements...")
+    controller.queue_movement(square_movements)
+    print("\nSquare complete!")
+    time.sleep(2)
+    
+    # Test 2: Draw a full circle with 0.25m radius
+    print("\n" + "="*60)
+    print("TEST 2: Drawing a circle (0.25m radius)")
+    print("="*60)
+    
+    circle_movements = [
+        (controller.move_arc, 0.25, 360),
+    ]
+    
+    print("\nExecuting circle movement...")
+    controller.queue_movement(circle_movements)
+    print("\nCircle complete!")
+    
+    print("\n" + "="*60)
+    print("ALL TESTS COMPLETE")
+    print("="*60)
+    
+    exit()
