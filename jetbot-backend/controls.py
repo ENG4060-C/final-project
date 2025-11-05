@@ -1,36 +1,33 @@
-# FastAPI server exposing Jetbot Functionality
+# JetBot Robot Controller
 import math
-import threading
 import time
-from typing import Optional, Dict, List, Tuple, Union, Callable
+from typing import List, Tuple, Callable, Dict
 
-import requests
-import uvicorn
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from jetbot import Robot, Camera
 import cv2
 
-# Hardware Configuration
-IMAGE_WIDTH = 1640
-IMAGE_HEIGHT = 1232
-I2C_BUS = 7
-LEFT_MOTOR_CHANNEL = 1
-RIGHT_MOTOR_CHANNEL = 2
-MAX_MOTOR_VALUE = 1.0         
-MIN_MOTOR_VALUE = 0.3
-STATIC_FRICTION_THRESHOLD = 0.30
-
-# Calibrated values (from testing)
-MOTOR_SPEED_FACTOR = 0.1827
-LEFT_MOTOR_OFFSET = 0.0085
-WHEELBASE_M = 0.0540
-ACCEL_DECEL_RATIO = 0.25
-ACCEL_DECEL_STEPS = 5
-MIN_ACCEL_DECEL_TIME = 0.15
-OSHOOT_CORRECTION_START = 0.03
-OSHOOT_CORRECTION_SLOPE = 0.00005
-OSHOOT_CORRECTION_MAX = 0.07
+from schemas import (
+    # Hardware Configuration
+    IMAGE_WIDTH,
+    IMAGE_HEIGHT,
+    I2C_BUS,
+    LEFT_MOTOR_CHANNEL,
+    RIGHT_MOTOR_CHANNEL,
+    MAX_MOTOR_VALUE,
+    MIN_MOTOR_VALUE,
+    STATIC_FRICTION_THRESHOLD,
+    
+    # Calibrated values
+    MOTOR_SPEED_FACTOR,
+    LEFT_MOTOR_OFFSET,
+    WHEELBASE_M,
+    ACCEL_DECEL_RATIO,
+    ACCEL_DECEL_STEPS,
+    MIN_ACCEL_DECEL_TIME,
+    OSHOOT_CORRECTION_START,
+    OSHOOT_CORRECTION_SLOPE,
+    OSHOOT_CORRECTION_MAX,
+)
 
 class RobotController:
     """
