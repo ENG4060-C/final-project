@@ -1,7 +1,14 @@
 # JetBot Robot Controller
 import math
 import time
+import base64
+import os
+import json
+import asyncio
 from typing import List, Tuple, Callable, Dict, Optional
+from threading import Thread
+import numpy as np
+import websockets
 
 from jetbot import Robot, Camera, UltrasonicSensor
 import cv2
@@ -34,10 +41,12 @@ from schemas import (
 class RobotController:
     """
     Controller for JetBot hardware providing motor and camera control.
+    Includes WebSocket client for sending frames to yoloe-backend and receiving detections.
     """
     
     def __init__(self, robot: Optional[Robot] = None, camera: Optional[Camera] = None, 
-                 ultrasonic: Optional[UltrasonicSensor] = None):
+                 ultrasonic: Optional[UltrasonicSensor] = None,
+                 yoloe_backend_url: Optional[str] = None):
         """
         Initialize robot and camera hardware.
         
@@ -45,6 +54,7 @@ class RobotController:
             robot: Optional Robot instance (will be created if not provided)
             camera: Optional Camera instance (will be created if not provided)
             ultrasonic: Optional UltrasonicSensor instance (will be created if not provided)
+            yoloe_backend_url: URL of yoloe-backend server (default: http://localhost:8000)
         """
         print("Initializing RobotController...")
         if robot is not None:
@@ -65,6 +75,16 @@ class RobotController:
             self.ultrasonic = ultrasonic
         else:
             self.ultrasonic = UltrasonicSensor()
+        
+        # WebSocket client for yoloe-backend
+        self.yoloe_backend_url = yoloe_backend_url or "http://localhost:8001"
+        self.yoloe_backend_ws_url = self.yoloe_backend_url.replace("http://", "ws://").replace("https://", "wss://")
+        self.latest_detections: Optional[Dict] = None
+        self._websocket_client_task: Optional[Thread] = None
+        self._websocket_client_running = False
+        
+        # Start WebSocket client (handles both sending frames and receiving detections)
+        self.start_websocket_client()
     
     def _check_ultrasonic_safety(self) -> Tuple[bool, Optional[float]]:
         """
@@ -826,8 +846,162 @@ class RobotController:
                 time.sleep(0.5)
     
     def stop(self):
+        """Stop motors and WebSocket client."""
         self.robot.stop()
+        self.stop_websocket_client()
         print("[STOP] Motors stopped")
+    
+    def start_websocket_client(self):
+        """Start WebSocket client to receive detection updates from yoloe-backend."""
+        if self._websocket_client_running:
+            return
+        
+        self._websocket_client_running = True
+        self._websocket_client_task = Thread(target=self._websocket_client_loop, daemon=True)
+        self._websocket_client_task.start()
+        print(f"[WEBSOCKET_CLIENT] Started connecting to {self.yoloe_backend_ws_url}")
+    
+    def stop_websocket_client(self):
+        """Stop WebSocket client thread."""
+        self._websocket_client_running = False
+        if self._websocket_client_task:
+            self._websocket_client_task.join(timeout=2.0)
+        print("[WEBSOCKET_CLIENT] Stopped")
+    
+    def _websocket_client_loop(self):
+        """Background loop that connects to yoloe-backend WebSocket and receives detection updates."""
+        ws_url = f"{self.yoloe_backend_ws_url}/ws/telemetry?client=jetbot"
+        
+        while self._websocket_client_running:
+            try:
+                # Run async WebSocket client in a new event loop
+                asyncio.run(self._websocket_client_async(ws_url))
+            except Exception as e:
+                if self._websocket_client_running:
+                    print(f"[WEBSOCKET_CLIENT] Connection error: {e}, retrying in 5 seconds...")
+                    time.sleep(5)
+    
+    async def _websocket_client_async(self, ws_url: str):
+        """Async WebSocket client that sends frames and receives detection updates."""
+        try:
+            async with websockets.connect(ws_url) as websocket:
+                print(f"[WEBSOCKET_CLIENT] Connected to {ws_url}")
+                
+                # Start frame sender task
+                frame_sender_task = asyncio.create_task(self._send_frames_async(websocket))
+                
+                try:
+                    async for message in websocket:
+                        if not self._websocket_client_running:
+                            break
+                        
+                        try:
+                            data = json.loads(message)
+                            
+                            # Update latest detections from WebSocket message
+                            if data.get("type") == "detections":
+                                self.latest_detections = {
+                                    "detections": data.get("detections", []),
+                                    "num_detections": data.get("num_detections", 0),
+                                    "model": data.get("model", {}),
+                                    "labels": data.get("labels", [])
+                                }
+                            
+                            # Handle event messages (e.g., label updates)
+                            elif data.get("type") == "event" and data.get("event_type") == "labels_updated":
+                                labels = data.get("data", {}).get("labels", [])
+                                print(f"[WEBSOCKET_CLIENT] Labels updated: {len(labels)} labels")
+                            
+                            # Handle label responses
+                            elif data.get("type") == "labels_response":
+                                print(f"[WEBSOCKET_CLIENT] Labels response received")
+                        
+                        except json.JSONDecodeError as e:
+                            print(f"[WEBSOCKET_CLIENT] Error parsing message: {e}")
+                        except Exception as e:
+                            print(f"[WEBSOCKET_CLIENT] Error processing message: {e}")
+                
+                finally:
+                    # Cancel frame sender task
+                    frame_sender_task.cancel()
+                    try:
+                        await frame_sender_task
+                    except asyncio.CancelledError:
+                        pass
+        
+        except websockets.exceptions.ConnectionClosed:
+            if self._websocket_client_running:
+                print("[WEBSOCKET_CLIENT] Connection closed, will retry...")
+        except Exception as e:
+            if self._websocket_client_running:
+                raise
+    
+    async def _send_frames_async(self, websocket):
+        """Async task that sends frames to yoloe-backend via WebSocket."""
+        frame_interval = 1.0 / 30.0  # ~30 FPS
+        
+        while self._websocket_client_running:
+            try:
+                # Read camera image
+                image = self.camera.value
+                
+                # Convert to numpy array if needed
+                if not isinstance(image, np.ndarray):
+                    image = np.array(image)
+                
+                # Encode image as JPEG
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # 85% quality
+                _, encoded_image = cv2.imencode('.jpg', image, encode_param)
+                image_b64 = base64.b64encode(encoded_image).decode('utf-8')
+                
+                # Read telemetry data
+                ultrasonic_distance = None
+                try:
+                    ultrasonic_distance = self.ultrasonic.read_distance()
+                except Exception as e:
+                    pass  # Silent fail, will send None
+                
+                left_motor_value = None
+                right_motor_value = None
+                try:
+                    left_motor_value = float(self.robot.left_motor.value)
+                    right_motor_value = float(self.robot.right_motor.value)
+                except Exception as e:
+                    pass  # Silent fail, will send None
+                
+                # Prepare WebSocket message
+                frame_message = {
+                    "type": "frame",
+                    "image": image_b64,
+                    "ultrasonic": {
+                        "distance_m": ultrasonic_distance,
+                        "distance_cm": ultrasonic_distance * 100 if ultrasonic_distance is not None else None
+                    },
+                    "motors": {
+                        "left": left_motor_value,
+                        "right": right_motor_value
+                    }
+                }
+                
+                # Send via WebSocket
+                await websocket.send(json.dumps(frame_message))
+                
+                # Sleep to maintain frame rate
+                await asyncio.sleep(frame_interval)
+                
+            except Exception as e:
+                if self._websocket_client_running:
+                    print(f"[WEBSOCKET_CLIENT] Error sending frame: {e}")
+                await asyncio.sleep(frame_interval)
+    def get_latest_detections(self) -> Optional[Dict]:
+        """
+        Get the latest detection results from yoloe-backend.
+        
+        Returns:
+            dict: Latest detection results with 'detections', 'num_detections', etc.
+                  Returns None if no detections available yet.
+        """
+        return self.latest_detections
 
 if __name__ == "__main__":
     """

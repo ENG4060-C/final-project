@@ -1,6 +1,7 @@
 """
 Main entry point for JetBot control system.
-Initializes hardware components and starts API and WebSocket servers.
+Initializes hardware components and starts API server.
+WebSocket telemetry is handled by yoloe-backend on port 8001.
 """
 from jetbot import Robot, Camera, UltrasonicSensor
 
@@ -13,7 +14,6 @@ from schemas import (
 )
 from controls import RobotController
 from api import APIServer
-from websocket import WebSocketServer
 
 def print_success(msg):
     GREEN = "\033[92m"
@@ -56,23 +56,10 @@ def main():
         print(f"ERROR: Failed to initialize RobotController: {e}")
         raise
     
-    # Initialize WebSocket server with hardware components
-    try:
-        websocket_server = WebSocketServer(
-            robot=robot,
-            camera=camera,
-            ultrasonic=ultrasonic
-        )
-        print("WebSocket server initialized")
-    except Exception as e:
-        print(f"ERROR: Failed to initialize WebSocket server: {e}")
-        raise
-    
     # Initialize API server
     try:
         api_server = APIServer(
-            robot_controller=robot_controller,
-            websocket_server=websocket_server
+            robot_controller=robot_controller
         )
         print("API server initialized")
     except Exception as e:
@@ -84,8 +71,8 @@ def main():
     print("JetBot Control System Ready!")
     print("="*50)
     print(f"API Server: http://0.0.0.0:8000")
-    print(f"WebSocket: ws://0.0.0.0:8000/ws/telemetry")
     print(f"API Docs: http://0.0.0.0:8000/docs")
+    print(f"Note: WebSocket telemetry is handled by yoloe-backend on port 8001")
     print("="*50 + "\n")
     
     try:

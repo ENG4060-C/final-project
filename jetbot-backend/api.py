@@ -5,12 +5,11 @@ Provides type-safe REST API endpoints for robot movement control.
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status, WebSocket
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from controls import RobotController
-from websocket import WebSocketServer
 from schemas import (
     MovementType,
     MoveDistanceRequest,
@@ -30,16 +29,14 @@ class APIServer:
     FastAPI server for JetBot control API.
     """
     
-    def __init__(self, robot_controller: RobotController, websocket_server: WebSocketServer):
+    def __init__(self, robot_controller: RobotController):
         """
-        Initialize API server with robot controller and WebSocket server.
+        Initialize API server with robot controller.
         
         Args:
             robot_controller: RobotController instance
-            websocket_server: WebSocketServer instance
         """
         self.robot_controller = robot_controller
-        self.websocket_server = websocket_server
         
         # Create FastAPI app
         self.app = FastAPI(
@@ -94,34 +91,6 @@ class APIServer:
                 status="healthy" if self.robot_controller is not None else "degraded",
                 robot_initialized=self.robot_controller is not None
             )
-        
-        @self.app.websocket("/ws/telemetry")
-        async def websocket_telemetry(websocket: WebSocket):
-            """
-            WebSocket endpoint for real-time robot telemetry.
-            
-            Broadcasts ultrasonic sensor data, motor values, and camera images
-            to all connected clients at ~30 FPS.
-            
-            Message format:
-            {
-                "timestamp": 1234567890.123,
-                "ultrasonic": {
-                    "distance_m": 0.25,
-                    "distance_cm": 25.0
-                },
-                "motors": {
-                    "left": 0.5,
-                    "right": 0.5
-                },
-                "image": "base64_encoded_jpeg_string"
-            }
-            """
-            if self.robot_controller is None:
-                await websocket.close(code=1003, reason="Robot controller not initialized")
-                return
-            
-            await self.websocket_server.connect_websocket(websocket)
         
         @self.app.post("/move/distance", response_model=MovementResult)
         async def move_distance(request: MoveDistanceRequest):

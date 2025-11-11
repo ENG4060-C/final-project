@@ -12,7 +12,7 @@ IMAGE_HEIGHT = 1232
 I2C_BUS = 7
 LEFT_MOTOR_CHANNEL = 1
 RIGHT_MOTOR_CHANNEL = 2
-MAX_MOTOR_VALUE = 1.0         
+MAX_MOTOR_VALUE = 1.0
 MIN_MOTOR_VALUE = 0.3
 STATIC_FRICTION_THRESHOLD = 0.30
 ULTRASONIC_SAFETY_THRESHOLD_M = 0.05
@@ -39,7 +39,7 @@ class MovementType(str, Enum):
 class MoveDistanceRequest(BaseModel):
     """Request model for move_distance endpoint."""
     distance_m: float = Field(
-        ..., 
+        ...,
         description="Distance in meters (positive=forward, negative=backward)",
         ge=-10.0,
         le=10.0
