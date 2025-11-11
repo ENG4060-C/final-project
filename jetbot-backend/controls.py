@@ -82,6 +82,8 @@ class RobotController:
         self.latest_detections: Optional[Dict] = None
         self._websocket_client_task: Optional[Thread] = None
         self._websocket_client_running = False
+        self._websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self._websocket_event_loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Start WebSocket client (handles both sending frames and receiving detections)
         self.start_websocket_client()
@@ -965,6 +967,9 @@ class RobotController:
         """Async WebSocket client that sends frames and receives detection updates."""
         try:
             async with websockets.connect(ws_url) as websocket:
+                # Store websocket connection as global object
+                self._websocket = websocket
+                self._websocket_event_loop = asyncio.get_event_loop()
                 print(f"[WEBSOCKET_CLIENT] Connected to {ws_url}")
                 
                 # Start frame sender task
@@ -1008,13 +1013,21 @@ class RobotController:
                         await frame_sender_task
                     except asyncio.CancelledError:
                         pass
+                    
+                    # Clear websocket reference when connection closes
+                    self._websocket = None
+                    self._websocket_event_loop = None
         
         except websockets.exceptions.ConnectionClosed:
             if self._websocket_client_running:
                 print("[WEBSOCKET_CLIENT] Connection closed, will retry...")
+            self._websocket = None
+            self._websocket_event_loop = None
         except Exception as e:
             if self._websocket_client_running:
                 raise
+            self._websocket = None
+            self._websocket_event_loop = None
     
     async def _send_frames_async(self, websocket):
         """Async task that sends frames to yoloe-backend via WebSocket."""
