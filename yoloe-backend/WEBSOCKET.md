@@ -7,7 +7,7 @@ This document describes the WebSocket API for real-time telemetry and YOLO objec
 ### Endpoint
 
 ```
-ws://localhost:8001/ws/telemetry
+ws://localhost:8002/ws/telemetry
 ```
 
 ### Query Parameters
@@ -21,15 +21,15 @@ ws://localhost:8001/ws/telemetry
 **JetBot Client:**
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8001/ws/telemetry?client=jetbot");
+const ws = new WebSocket("ws://localhost:8002/ws/telemetry?client=jetbot");
 ```
 
 **Frontend Client:**
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8001/ws/telemetry?client=frontend");
+const ws = new WebSocket("ws://localhost:8002/ws/telemetry?client=frontend");
 // or simply
-const ws = new WebSocket("ws://localhost:8001/ws/telemetry");
+const ws = new WebSocket("ws://localhost:8002/ws/telemetry");
 ```
 
 ### Keepalive
@@ -352,7 +352,7 @@ import base64
 import cv2
 
 async def jetbot_client():
-    uri = "ws://localhost:8001/ws/telemetry?client=jetbot"
+    uri = "ws://localhost:8002/ws/telemetry?client=jetbot"
 
     async with websockets.connect(uri) as websocket:
         print("Connected as JetBot client")
@@ -392,7 +392,7 @@ asyncio.run(jetbot_client())
 ### Frontend Client Example
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8001/ws/telemetry?client=frontend");
+const ws = new WebSocket("ws://localhost:8002/ws/telemetry?client=frontend");
 
 ws.onopen = () => {
     console.log("Connected to telemetry stream");

@@ -123,6 +123,19 @@ else
     --index-url https://download.pytorch.org/whl/cu124
 fi
 
+# ---------- OpenCV (for non-Jetson environments) ----------
+if [ "$ENVIRONMENT" != "jetson" ]; then
+  echo "Ensuring OpenCV is installed (non-Jetson)..."
+  if python - <<'PY' 2>/dev/null; then
+import cv2; print("OpenCV present")
+PY
+    echo "OpenCV already installed, skipping..."
+  else
+    echo "Installing opencv-python..."
+    pip install opencv-python
+  fi
+fi
+
 # ---------- Ultralytics / YOLO-E ----------
 echo "Ensuring Ultralytics is installed..."
 if python - <<'PY' 2>/dev/null; then
