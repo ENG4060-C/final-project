@@ -829,6 +829,77 @@ class RobotController:
             print(f"[SET_LABELS] Sent {len(labels)} labels")
         except Exception as e:
             raise RuntimeError(f"Failed to send set_labels message: {e}")
+        
+    def scan(self, labels: List[str], step_degrees: float = 45, idle_time: float = 1.0) -> Dict[str, List[str]]:
+        """
+        Perform a 360° scan, rotates in increments 
+        and builds a dictionary mapping of labels seen in each sector
+
+        Args:
+            labels: Label list to set on the backend before scanning
+            step_degrees: Angle increment per rotation step (default 45 degrees)
+            idle_time: Time in seconds to wait at each step for detections (default 1.0)
+
+        Returns:
+            dict: { "sector_<angle>": [list of detected labels], ... }
+        """
+        # Push labels
+        try:
+            try:
+                # Try to get the current event loop
+                asyncio.get_running_loop()
+
+                if self._websocket_event_loop is not None:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.set_labels(labels),
+                        self._websocket_event_loop
+                    )
+                    future.result(timeout=2.0)
+                else:
+                    # No websocket event loop, but we're in async context - can't use asyncio.run()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.set_labels(labels))
+                        future.result(timeout=2.0)
+            except RuntimeError:
+                # No event loop running
+                asyncio.run(self.set_labels(labels))
+        except Exception as e:
+            print(f"[SCAN] Failed to set labels before scan: {e}")
+
+        # If nothing is detected yet
+        if self.latest_detections is None:
+            print("[SCAN] No detection data, waiting for initial feed...")
+            time.sleep(1.0)
+
+        results: Dict[str, List[str]] = {}
+        current_angle = 0.0
+        total_steps = int(360 / abs(step_degrees))
+
+        # Rotating loop
+        for _ in range(total_steps):
+            sector = f"sector_{int(current_angle)}"
+            print(f"[SCAN] Rotating to {sector}...")
+
+            # Rotate robot
+            self.rotate(step_degrees)
+            time.sleep(idle_time)
+
+            # Collect labels
+            dets = (self.latest_detections or {}).get("detections", [])
+            sector_labels: List[str] = []
+            for det in dets:
+                name = det.get("class_name")
+                if name:
+                    sector_labels.append(name)
+                    
+            results[sector] = sector_labels
+            print(f"[SCAN] {sector}: {sector_labels if sector_labels else 'No detections'}")
+
+            current_angle += step_degrees
+
+        print("[SCAN] 360° scan complete.")
+        return results
     
     def queue_movement(self, movements: List[Tuple[Callable, ...]]):
         """

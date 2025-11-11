@@ -2,10 +2,10 @@
 FastAPI server for JetBot remote control.
 Provides type-safe REST API endpoints for robot movement control.
 """
-from typing import Optional
+from typing import Any, Optional, Dict, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Body, status
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -212,6 +212,33 @@ class APIServer:
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to set labels: {str(e)}"
                 )
+            
+        @self.app.post("/vision/scan", response_model=Dict[str, List[str]])
+        async def scan(body: Optional[Any] = Body(default=None)):
+            robot = self._get_robot()
+
+            # Parse labels flexibly
+            scan_labels: List[str] = []
+            if isinstance(body, list):
+                scan_labels = [str(x) for x in body]
+            elif isinstance(body, dict) and "labels" in body:
+                val = body.get("labels")
+                if not isinstance(val, list):
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="'labels' must be a list of strings"
+                    )
+                scan_labels = [str(x) for x in val]
+            
+            try:
+                sectors = robot.scan(labels=scan_labels, step_degrees=45, idle_time=1.0)
+                return sectors
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to scan: {str(e)}"
+                )
+            
         
         @self.app.post("/move/queue", response_model=SuccessResponse)
         async def queue_movement(request: QueueMovementRequest):
