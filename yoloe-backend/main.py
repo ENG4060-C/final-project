@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict
 from PIL import Image
 import base64, io, os
-from websocket import setup_websocket
+from ws_yoloe import setup_websocket
 
 import torch
 from ultralytics import YOLO
@@ -116,7 +116,7 @@ async def predict_b64(payload: Base64Image):
         raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
     return get_detector().predict_pil(image)
 
-telemetry_manager = setup_websocket(app)
+telemetry_manager = setup_websocket(app, get_detector)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
