@@ -972,27 +972,27 @@ class RobotController:
                 
                 # Check if object is centered horizontally
                 if distance_from_center_x <= center_threshold:
-                    print(f"{PREFIX_COLOR}{PRINT_PREFIX} Found '{class_name}' centered at {total_angle_rotated:.1f}° "
+                    print(f"{PREFIX_COLOR}{PRINT_PREFIX} Found '{class_name}' centered at {total_angle_rotated/2:.1f}° "
                           f"(X distance from center: {distance_from_center_x:.1f}px){PREFIX_RESET}")
                     return {
                         "status": "found",
                         "final_ultrasonic": self.ultrasonic.read_distance(),
                         "info": {
                             "items": items,
-                            "angle_degrees_found": total_angle_rotated,
+                            "angle_degrees_found": total_angle_rotated/2,
                             "found_item": class_name,
                             "distance_from_center_px": distance_from_center_x
                         }
                     }
         
         # Completed full rotation without finding centered object
-        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Completed {total_angle_rotated:.1f}° rotation - object not centered{PREFIX_RESET}")
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Completed {total_angle_rotated/2:.1f}° rotation - object not centered{PREFIX_RESET}")
         return {
             "status": "not_found",
             "final_ultrasonic": self.ultrasonic.read_distance(),
             "info": {
                 "items": items,
-                "angle_degrees_found": total_angle_rotated,
+                "angle_degrees_found": total_angle_rotated/2,
             }
         }
     
