@@ -810,6 +810,9 @@ class RobotController:
     async def set_labels(self, labels: List[str]):
         """
         Overwrite YOLO-E labels on the backend
+        
+        Args:
+            labels: List of strings, each representing a label.
         """
         # Validation
         if not isinstance(labels, list):
@@ -829,6 +832,169 @@ class RobotController:
             print(f"[SET_LABELS] Sent {len(labels)} labels")
         except Exception as e:
             raise RuntimeError(f"Failed to send set_labels message: {e}")
+    
+    def rotate_until_object_center(self, items: List[str], robot_speed: float = 0.3, center_threshold: float = 200.0):
+        """
+        Rotate the robot until the object is centered in the camera, or until 360 degrees is reached.
+        
+        Args:
+            items: List of item labels to search for.
+            robot_speed: Motor speed value 0.0 to 1.0 (default: 0.3)
+            center_threshold: Maximum distance from image center to consider "centered" in pixels (default: 100.0)
+            
+        Returns:
+            status dictionary of shape:
+            {
+                status: "found" or "not_found"
+                final_ultrasonic: float
+                info: {
+                    items: List[str]
+                    angle_degrees_found: float
+                }
+            }
+        """
+        PRINT_PREFIX = "[ROTATE_UNTIL_OBJECT_CENTER]"
+        PREFIX_COLOR = "\033[96m"
+        PREFIX_RESET = "\033[0m"
+        
+        if not items:
+            raise ValueError("No items provided")
+        
+        # Set labels for detection
+        try:
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use the websocket event loop
+                if self._websocket_event_loop is not None:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.set_labels(items),
+                        self._websocket_event_loop
+                    )
+                    future.result(timeout=2.0)
+                else:
+                    # No websocket event loop, but we're in async context - can't use asyncio.run()
+                    # Schedule on current loop instead
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.set_labels(items))
+                        future.result(timeout=2.0)
+            except RuntimeError:
+                # No event loop running, safe to use asyncio.run()
+                asyncio.run(self.set_labels(items))
+                
+        except Exception as e:
+            print(f"{PREFIX_COLOR}{PRINT_PREFIX} Failed to set labels: {e}{PREFIX_RESET}")
+            return {
+                "status": "not_found",
+                "final_ultrasonic": self.ultrasonic.read_distance(),
+                "info": {
+                    "items": items,
+                    "angle_degrees_found": 0.0,
+                }
+            }
+        
+        # Small delay to allow labels to propagate
+        time.sleep(0.5)
+        
+        # Check if latest_detections is available
+        if self.latest_detections is None:
+            return {
+                "status": "not_found",
+                "final_ultrasonic": self.ultrasonic.read_distance(),
+                "info": {
+                    "items": items,
+                    "angle_degrees_found": 0.0,
+                }
+            }
+        
+        # Image center X coordinate (only check left/right, not up/down)
+        image_center_x = IMAGE_WIDTH / 2.0
+        
+        # Clamp motor speed to valid range
+        motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
+        
+        # Calculate rotation parameters for 15-degree increments
+        # Use the same calculation as rotate() function
+        increment_degrees = 15.0
+        angle_rad = math.radians(increment_degrees)
+        wheel_distance_m = angle_rad * WHEELBASE_M / 2.0
+        actual_speed_m_s = motor_value * MOTOR_SPEED_FACTOR
+        increment_duration_s = wheel_distance_m / actual_speed_m_s
+        
+        # Set motor values for CCW rotation (positive angle)
+        left_motor = motor_value
+        right_motor = -motor_value
+        
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Searching for {items} - rotating in {increment_degrees}° increments "
+              f"(pause: 0.5s after each increment, X threshold: {center_threshold}px){PREFIX_RESET}")
+        
+        total_angle_rotated = 0.0
+        max_rotation = 360.0
+        num_increments = int(max_rotation / increment_degrees) * 2 
+        
+        for i in range(num_increments):
+            # Rotate by increment
+            self.robot.left_motor.value = left_motor
+            self.robot.right_motor.value = right_motor
+            time.sleep(increment_duration_s)
+            self.robot.stop()
+            
+            total_angle_rotated += increment_degrees
+            
+            # Wait 0.5 seconds for blur to fade (reduced from 1.0s)
+            time.sleep(0.5)
+            
+            # Check latest detections for centered objects
+            if self.latest_detections is None:
+                continue
+                
+            detections = self.latest_detections.get("detections", [])
+            
+            # Check each detection to see if it matches our items and is centered horizontally
+            for detection in detections:
+                class_name = detection.get("class_name", "")
+                
+                # Check if this detection matches any of our target items
+                if class_name not in items:
+                    continue
+                
+                # Get bounding box
+                box = detection.get("box", {})
+                x1 = box.get("x1", 0)
+                x2 = box.get("x2", 0)
+                
+                # Calculate center X of bounding box (ignore Y)
+                box_center_x = (x1 + x2) / 2.0
+                
+                # Calculate horizontal distance from image center (only X, not Y)
+                distance_from_center_x = abs(box_center_x - image_center_x)
+                
+                # Check if object is centered horizontally
+                if distance_from_center_x <= center_threshold:
+                    print(f"{PREFIX_COLOR}{PRINT_PREFIX} Found '{class_name}' centered at {total_angle_rotated:.1f}° "
+                          f"(X distance from center: {distance_from_center_x:.1f}px){PREFIX_RESET}")
+                    return {
+                        "status": "found",
+                        "final_ultrasonic": self.ultrasonic.read_distance(),
+                        "info": {
+                            "items": items,
+                            "angle_degrees_found": total_angle_rotated,
+                            "found_item": class_name,
+                            "distance_from_center_px": distance_from_center_x
+                        }
+                    }
+        
+        # Completed full rotation without finding centered object
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Completed {total_angle_rotated:.1f}° rotation - object not centered{PREFIX_RESET}")
+        return {
+            "status": "not_found",
+            "final_ultrasonic": self.ultrasonic.read_distance(),
+            "info": {
+                "items": items,
+                "angle_degrees_found": total_angle_rotated,
+            }
+        }
     
     def queue_movement(self, movements: List[Tuple[Callable, ...]]):
         """
@@ -1029,6 +1195,7 @@ class RobotController:
                 if self._websocket_client_running:
                     print(f"[WEBSOCKET_CLIENT] Error sending frame: {e}")
                 await asyncio.sleep(frame_interval)
+                
     def get_latest_detections(self) -> Optional[Dict]:
         """
         Get the latest detection results from yoloe-backend.

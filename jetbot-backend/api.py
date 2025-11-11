@@ -17,6 +17,7 @@ from schemas import (
     MoveArcRequest,
     MovementCommand,
     QueueMovementRequest,
+    RotateUntilObjectCenterRequest,
     SuccessResponse,
     HealthResponse,
     MovementResult,
@@ -211,6 +212,36 @@ class APIServer:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to set labels: {str(e)}"
+                )
+        
+        @self.app.post("/vision/rotate_until_object_center", response_model=MovementResult)
+        async def rotate_until_object_center(request: RotateUntilObjectCenterRequest):
+            """
+            Rotate the robot until an object is centered in the camera, or until 360 degrees is reached.
+            
+            - **items**: List of item labels to search for (e.g., ["bookbag", "backpack"])
+            - **robot_speed**: Motor speed value (0.3 to 1.0, default: 0.3)
+            - **center_threshold**: Maximum distance from image center to consider "centered" in pixels (default: 100.0)
+            
+            Returns movement result with status ("found" or "not_found"), final ultrasonic reading, and info.
+            """
+            robot = self._get_robot()
+            
+            try:
+                result = robot.rotate_until_object_center(
+                    items=request.items,
+                    robot_speed=request.robot_speed,
+                    center_threshold=request.center_threshold
+                )
+                return MovementResult(
+                    status=MovementStatus(result["status"]),
+                    final_ultrasonic=result["final_ultrasonic"],
+                    info=result["info"]
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to execute rotate_until_object_center: {str(e)}"
                 )
         
         @self.app.post("/move/queue", response_model=SuccessResponse)

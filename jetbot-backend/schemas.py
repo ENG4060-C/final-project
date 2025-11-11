@@ -196,6 +196,36 @@ class QueueMovementRequest(BaseModel):
             }
         }
 
+# Rotate Until Object Center Request Model
+class RotateUntilObjectCenterRequest(BaseModel):
+    """Request model for rotate_until_object_center endpoint."""
+    items: List[str] = Field(
+        ...,
+        description="List of item labels to search for",
+        min_length=1
+    )
+    robot_speed: float = Field(
+        default=0.3,
+        description="Motor speed value",
+        ge=MIN_MOTOR_VALUE,
+        le=MAX_MOTOR_VALUE
+    )
+    center_threshold: float = Field(
+        default=100.0,
+        description="Maximum distance from image center to consider 'centered' in pixels",
+        ge=10.0,
+        le=500.0
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "items": ["bookbag", "backpack"],
+                "robot_speed": 0.3,
+                "center_threshold": 100.0
+            }
+        }
+
 
 # Success Response Model
 class SuccessResponse(BaseModel):
@@ -216,6 +246,8 @@ class MovementStatus(str, Enum):
     COMPLETED = "completed"
     SAFETY = "safety"
     INVALID_MOVEMENT = "invalid_movement"
+    FOUND = "found"
+    NOT_FOUND = "not_found"
 
 
 class MovementResult(BaseModel):
