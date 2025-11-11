@@ -77,7 +77,7 @@ class RobotController:
             self.ultrasonic = UltrasonicSensor()
         
         # WebSocket client for yoloe-backend
-        self.yoloe_backend_url = yoloe_backend_url or "http://localhost:8001"
+        self.yoloe_backend_url = yoloe_backend_url or "http://localhost:8002"
         self.yoloe_backend_ws_url = self.yoloe_backend_url.replace("http://", "ws://").replace("https://", "wss://")
         self.latest_detections: Optional[Dict] = None
         self._websocket_client_task: Optional[Thread] = None

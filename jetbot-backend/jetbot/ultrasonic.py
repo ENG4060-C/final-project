@@ -86,12 +86,13 @@ class UltrasonicSensor(Configurable):
         except Exception as e:
             raise RuntimeError(f"Failed to initialize ultrasonic sensor: {e}")
     
-    def read_distance(self, timeout=None):
+    def read_distance(self, timeout=None, debug=False):
         """
         Read a single distance measurement from the sensor.
         
         Args:
             timeout: Timeout in seconds (default: ECHO_TIMEOUT_S)
+            debug: Print debug information (default: False)
         
         Returns:
             float: Distance in meters, or None if timeout/error
@@ -113,25 +114,49 @@ class UltrasonicSensor(Configurable):
         
         # Wait for ECHO pin to go HIGH (start of echo pulse)
         t0 = time.time()
+        echo_start_timeout = False
         while GPIO.input(self.echo_pin) == GPIO.LOW:
             if time.time() - t0 > timeout:
-                return None
+                echo_start_timeout = True
+                break
+        
+        if echo_start_timeout:
+            if debug:
+                print(f"  [DEBUG] ECHO pin never went HIGH (timeout after {timeout*1000:.1f}ms)")
+            return None
         
         # Measure duration of HIGH pulse
         start = time.time()
+        echo_end_timeout = False
         while GPIO.input(self.echo_pin) == GPIO.HIGH:
             if time.time() - start > timeout:
-                return None
+                echo_end_timeout = True
+                break
         
         # Calculate pulse duration
         duration = time.time() - start
+        
+        if echo_end_timeout:
+            if debug:
+                print(f"  [DEBUG] ECHO pin stayed HIGH too long (timeout after {timeout*1000:.1f}ms, duration={duration*1000:.1f}ms)")
+            return None
         
         # Calculate distance in meters (round trip, so divide by 2)
         # distance = (pulse_duration * speed_of_sound) / 2
         distance_m = (duration * SPEED_OF_SOUND_M_S) / 2.0
         
+        if debug:
+            print(f"  [DEBUG] Pulse duration: {duration*1000:.3f}ms, Distance: {distance_m*100:.1f}cm")
+        
         # Validate distance is within HC-SR04 range
-        if distance_m < MIN_DISTANCE_M or distance_m > MAX_DISTANCE_M:
+        if distance_m < MIN_DISTANCE_M:
+            if debug:
+                print(f"  [DEBUG] Distance {distance_m*100:.1f}cm below minimum {MIN_DISTANCE_M*100:.1f}cm")
+            return None
+        
+        if distance_m > MAX_DISTANCE_M:
+            if debug:
+                print(f"  [DEBUG] Distance {distance_m*100:.1f}cm above maximum {MAX_DISTANCE_M*100:.1f}cm")
             return None
         
         return distance_m
