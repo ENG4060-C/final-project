@@ -177,6 +177,41 @@ class APIServer:
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to execute move_arc: {str(e)}"
                 )
+
+        @self.app.post("/vision/labels", response_model=SuccessResponse)
+        async def set_labels(request: dict):
+            """
+            Update YOLO-E detection labels.
+
+            Accepts a JSON body:
+            {
+                "labels": ["person", "bottle", "dog"]
+            }
+            """
+            robot = self._get_robot()
+
+            try:
+                labels = request.get("labels")
+                if not isinstance(labels, list):
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="Field 'labels' must be a list of strings"
+                    )
+
+                await robot.set_labels(labels)
+
+                return SuccessResponse(
+                    message=f"Sent {len(labels)} labels to YOLO-E backend",
+                    data={"labels": labels}
+                )
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to set labels: {str(e)}"
+                )
         
         @self.app.post("/move/queue", response_model=SuccessResponse)
         async def queue_movement(request: QueueMovementRequest):

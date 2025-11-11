@@ -807,85 +807,28 @@ class RobotController:
             }
         }
     
-    def set_labels(self, labels: List[str], timeout: float = 5.0) -> Dict:
+    async def set_labels(self, labels: List[str]):
         """
-        Overwrite YOLO-E labels on the backend.
-
-        This opens a short WebSocket connection to the YOLOE backend,
-        sends a 'set_labels' message, waits for the backend to confirm
-        with a 'labels_response', and returns that response.
+        Overwrite YOLO-E labels on the backend
         """
-        # Checks
+        # Validation
         if not isinstance(labels, list):
             raise ValueError("labels must be provided as a list")
+        
+        if self._websocket is None:
+            raise RuntimeError("WebSocket connection is not active")
 
-        # Build message payload
         payload = {
             "type": "set_labels",
             "labels": [str(x) for x in labels]
         }
-        ws_url = f"{self.yoloe_backend_ws_url}/ws/telemetry?client=jetbot"
 
-        # --- async send / receive ---
-        async def _run():
-            async with websockets.connect(ws_url) as ws:
-                await ws.send(json.dumps(payload))
-
-                # Wait until expected reply
-                while True:
-                    try:
-                        msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
-                    except asyncio.TimeoutError:
-                        raise TimeoutError("Timed out waiting for labels_response")
-
-                    # Decode JSON
-                    try:
-                        data = json.loads(msg)
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Ignore broadcast events
-                    if data.get("type") == "labels_response":
-                        return data
-
-        # --- Handle async event loop ---
+        # Send payload 
         try:
-            loop = asyncio.get_running_loop()
-            running = loop.is_running()
-        except RuntimeError:
-            running = False
-
-        if running:
-            result_box, error_box = {}, {}
-
-            def worker():
-                try:
-                    result_box["data"] = asyncio.run(_run())
-                except Exception as e:
-                    error_box["err"] = e
-
-            t = Thread(target=worker, daemon=True)
-            t.start()
-            t.join(timeout + 1.0)
-            if "err" in error_box:
-                raise error_box["err"]
-            if "data" not in result_box:
-                raise TimeoutError("No response from server")
-            result = result_box["data"]
-        else:
-            # Normal synchronous call
-            result = asyncio.run(_run())
-
-        # Sanity check
-        if not isinstance(result, dict) or result.get("type") != "labels_response":
-            raise RuntimeError(f"Unexpected response: {result}")
-
-        print(f"[SET_LABELS] success={result.get('success')} "
-              f"count={len(result.get('labels', []))} "
-              f"msg='{result.get('message', '')}'")
-
-        return result
-        
+            await self._websocket.send(json.dumps(payload))
+            print(f"[SET_LABELS] Sent {len(labels)} labels")
+        except Exception as e:
+            raise RuntimeError(f"Failed to send set_labels message: {e}")
     
     def queue_movement(self, movements: List[Tuple[Callable, ...]]):
         """
