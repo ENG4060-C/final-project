@@ -457,7 +457,7 @@ class RobotController:
             }
         }
     
-    def rotate(self, angle_degrees: float, robot_speed: float = 0.4):
+    def rotate(self, angle_degrees: float, robot_speed: float = 0.5):
         """Rotate robot in place by specified angle."""
         PRINT_PREFIX = "[ROTATE]"
         PREFIX_COLOR = "\033[95m"
@@ -833,7 +833,7 @@ class RobotController:
         except Exception as e:
             raise RuntimeError(f"Failed to send set_labels message: {e}")
         
-    def scan(self, labels: List[str], step_degrees: float = 45, idle_time: float = 1.0) -> Dict[str, List[str]]:
+    def scan(self, labels: List[str], step_degrees: float = 45, idle_time: float = 1.5) -> Dict[str, List[str]]:
         """
         Perform a 360° scan, rotates in increments 
         and builds a dictionary mapping of labels seen in each sector
@@ -885,7 +885,7 @@ class RobotController:
             print(f"[SCAN] Rotating to {sector}...")
 
             # Rotate robot
-            self.rotate(step_degrees)
+            self.rotate(step_degrees, robot_speed=0.75)
             time.sleep(idle_time)
 
             # Collect labels
@@ -904,7 +904,7 @@ class RobotController:
         print("[SCAN] 360° scan complete.")
         return results
     
-    def rotate_until_object_center(self, items: List[str], robot_speed: float = 0.3, center_threshold: float = 200.0):
+    def rotate_until_object_center(self, items: List[str], robot_speed: float = 0.75, center_threshold: float = 200.0):
         """
         Rotate the robot until the object is centered in the camera, or until 360 degrees is reached.
         
@@ -1040,6 +1040,7 @@ class RobotController:
                 
                 # Calculate horizontal distance from image center (only X, not Y)
                 distance_from_center_x = abs(box_center_x - image_center_x)
+                print("[ROTATE-TIL-CENTER-INFO]:", distance_from_center_x)
                 
                 # Check if object is centered horizontally
                 if distance_from_center_x <= center_threshold:
