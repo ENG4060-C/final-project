@@ -1,37 +1,154 @@
+'use client';
+
+import { useState } from 'react';
+import CameraView from '../app/camview'
+import Image from 'next/image'
+
 export default function Home() {
+  const [prompts, setPrompts] = useState<string[]>(['person']);
+  const [inputValue, setInputValue] = useState('');
+
+  const handleAddPrompt = () => {
+    if (inputValue.trim()) {
+      setPrompts([...prompts, inputValue.trim()]);
+      setInputValue('');
+    }
+  };
+
+  const handleRemovePrompt = (index: number) => {
+    setPrompts(prompts.filter((_, i) => i !== index));
+  };
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col font-mono bg-black">
       {/* Top Navigation Bar */}
-      <nav className="w-full bg-gray-800 text-white p-4">
-        <h1 className="text-xl font-semibold">Robot Control Dashboard</h1>
+      <nav className="w-full bg-black border-b border-green-500/30 text-white py-1 px-2 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-green-400">Hot Dog Cockpit</h1>
+        <div className="flex gap-3">
+          <button className="bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded font-semibold transition-colors border border-red-500">
+            EMERGENCY STOP
+          </button>
+          <button className="bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded font-semibold transition-colors border border-green-500">
+            RESET SESSION
+          </button>
+        </div>
       </nav>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex gap-4 p-4">
+      <div className="flex-1 flex gap-4 p-4 bg-black">
         {/* Left Side Boxes */}
-        <div className="flex flex-col gap-4 flex-1 max-h-[600px]">
-          <div className="bg-gray-200 rounded-lg p-4 flex-1 flex items-center justify-center">
-            <span className="text-gray-500">Box 1</span>
+        <div className="flex flex-col gap-4 flex-1 max-h-[615px]">
+          {/* Box 1 */}
+          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-green-400 text-sm font-semibold">KEYBOARD CONTROLS</h2>
+              <span className="text-green-400 text-xs">● IDLE</span>
+            </div>
+            
+            {/* Control Grid */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [↑/W] Forward
+              </div>
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [↓/S] Backward
+              </div>
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [←/A] Turn Left
+              </div>
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [→/D] Turn Right
+              </div>
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [SPACE] Emergency Stop
+              </div>
+              <div className="bg-black border border-green-500/20 rounded p-2 text-green-300 text-xs hover:border-green-500/50 transition-colors">
+                [ESC] Emergency Stop
+              </div>
+            </div>
+
+            {/* Sliders */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-green-400 text-xs mb-2 block">LINEAR SPEED (FORWARD/BACKWARD)</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min="0" max="1" step="0.01" defaultValue="0.5" className="flex-1 accent-green-500" />
+                  <span className="text-green-300 text-xs w-12">0.50</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-green-400 text-xs mb-2 block">ANGULAR SPEED (TURNING)</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min="0" max="1" step="0.01" defaultValue="0.5" className="flex-1 accent-green-500" />
+                  <span className="text-green-300 text-xs w-12">0.50</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="bg-gray-200 rounded-lg p-4 flex-1 flex items-center justify-center">
-            <span className="text-gray-500">Box 2</span>
+          
+          {/* Box 2 */}
+          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-green-400 text-sm font-semibold">YOLO PROMPTS</h2>
+              <span className="text-green-400 text-xs">● OK</span>
+            </div>
+            
+            {/* Tags Area */}
+            <div className="flex-1 flex flex-wrap gap-2 mb-4 content-start overflow-y-auto">
+              {prompts.map((prompt, index) => (
+                <div key={index} className="bg-black border border-green-500/30 text-green-300 text-xs px-3 py-1 rounded-full flex items-center gap-2">
+                  {prompt}
+                  <button 
+                    onClick={() => handleRemovePrompt(index)}
+                    className="hover:text-red-500 transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Input Area */}
+            <div className="flex gap-2">
+              <input 
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleAddPrompt()}
+                placeholder="add a prompt (e.g., red bottle)"
+                className="flex-1 bg-black border border-green-500/30 text-green-300 text-xs px-3 py-2 rounded outline-none placeholder-green-700 focus:border-green-500"
+              />
+              <button 
+                onClick={handleAddPrompt}
+                className="bg-green-600 hover:bg-green-700 text-black px-3 py-2 rounded text-xs font-semibold transition-colors"
+              >
+                ✓
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Center Camera/Video Feed */}
         <div className="flex items-center justify-center">
-          <div className="bg-black aspect-square w-[700px] h-[600px] rounded-lg flex items-center justify-center">
-            <span className="text-white text-lg">Camera Feed</span>
+          <div className="bg-black border-2 border-green-500/30 aspect-square w-[700px] h-[615px] rounded-lg p-2">
+            <CameraView />
           </div>
         </div>
 
         {/* Right Side Boxes */}
-        <div className="flex flex-col gap-4 flex-1 max-h-[600px]">
-          <div className="bg-gray-200 rounded-lg p-4 flex-1 flex items-center justify-center">
-            <span className="text-gray-500">Box 3</span>
+        <div className="flex flex-col gap-4 flex-1 max-h-[615px]">
+          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex items-center justify-center overflow-hidden">
+            <Image 
+              src="/hacker.gif" 
+              alt="Hacker GIF" 
+              width={400} 
+              height={300} 
+              unoptimized
+              className="w-full h-full object-cover rounded"
+            />
           </div>
-          <div className="bg-gray-200 rounded-lg p-4 flex-1 flex items-center justify-center">
-            <span className="text-gray-500">Box 4</span>
+          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex items-center justify-center">
+            <span className="text-green-400">Box 4</span>
           </div>
         </div>
       </div>
