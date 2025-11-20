@@ -14,30 +14,33 @@ export default function Home() {
 
     const ws = new WebSocket("ws://localhost:8002/ws/telemetry");
 
-    ws.onopen = () => {
+    ws.addEventListener("open", () => {
       console.log("JetBot WS CONNECTED");
-    };
+    });
 
-    ws.onmessage = (event) => {
+    ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(event.data);
-
         if (msg.image) {
           const img = document.getElementById("jetbot-camera") as HTMLImageElement;
-          if (img) {
-            img.src = "data:image/jpeg;base64," + msg.image;
-          }
+          if (img) img.src = "data:image/jpeg;base64," + msg.image;
         }
       } catch (err) {
         console.warn("Non-JSON WS message:", event.data);
       }
-    };
+    });
 
-    ws.onerror = (err) => console.error("WS ERROR:", err);
-    ws.onclose = () => console.log("WS CLOSED");
+    ws.addEventListener("error", (event) => {
+      console.error("WebSocket error:", event);
+    });
+
+    ws.addEventListener("close", () => {
+      console.log("JetBot WS CLOSED");
+    });
 
     return () => ws.close();
   }, []);
+
 
   const handleAddPrompt = () => {
     if (inputValue.trim()) {
