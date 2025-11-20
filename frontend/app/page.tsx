@@ -20,15 +20,15 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-mono bg-black">
+    <div className="min-h-screen flex flex-col font-mono bg-black"y-1>
       {/* Top Navigation Bar */}
-      <nav className="w-full bg-black border-b border-green-500/30 text-white py-1 px-2 flex items-center justify-between">
+      <nav className="w-full bg-black border-b border-green-500/30 text-green-500/30 py-2 px-2 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-green-400">Hot Dog Cockpit</h1>
         <div className="flex gap-3">
-          <button className="bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded font-semibold transition-colors border border-red-500">
+          <button className="bg-black text-green-400 px-2 py-0.5 rounded font-semibold transition-colors border border-green-500/30 hover:border-green-400">
             EMERGENCY STOP
           </button>
-          <button className="bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded font-semibold transition-colors border border-green-500">
+          <button className="bg-black text-green-400 px-2 py-0.5 rounded font-semibold transition-colors border border-green-500/30 hover:border-green-400">
             RESET SESSION
           </button>
         </div>
@@ -147,8 +147,13 @@ export default function Home() {
               className="w-full h-full object-cover rounded"
             />
           </div>
-          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex items-center justify-center">
-            <span className="text-green-400">Box 4</span>
+          <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-green-400 text-sm font-semibold">SUBTITLES</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {/* Subtitles content will go here */}
+            </div>
           </div>
         </div>
       </div>
