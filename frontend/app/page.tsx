@@ -3,10 +3,41 @@
 import { useState } from 'react';
 import CameraView from '../app/camview'
 import Image from 'next/image'
+import { useEffect } from 'react';
 
 export default function Home() {
   const [prompts, setPrompts] = useState<string[]>(['person']);
   const [inputValue, setInputValue] = useState('');
+
+  useEffect(() => {
+    console.log("Connecting to JetBot WebSocket…");
+
+    const ws = new WebSocket("ws://localhost:8002/ws/telemetry");
+
+    ws.onopen = () => {
+      console.log("JetBot WS CONNECTED");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.image) {
+          const img = document.getElementById("jetbot-camera") as HTMLImageElement;
+          if (img) {
+            img.src = "data:image/jpeg;base64," + msg.image;
+          }
+        }
+      } catch (err) {
+        console.warn("Non-JSON WS message:", event.data);
+      }
+    };
+
+    ws.onerror = (err) => console.error("WS ERROR:", err);
+    ws.onclose = () => console.log("WS CLOSED");
+
+    return () => ws.close();
+  }, []);
 
   const handleAddPrompt = () => {
     if (inputValue.trim()) {
@@ -130,9 +161,11 @@ export default function Home() {
 
         {/* Center Camera/Video Feed */}
         <div className="flex items-center justify-center">
-          <div className="bg-black border-2 border-green-500/30 aspect-square w-[700px] h-[615px] rounded-lg p-2">
-            <CameraView />
-          </div>
+          <img 
+            id="jetbot-camera"
+            src="/placeholder.png"
+            className="bg-black w-[700px] h-[615px] rounded-lg object-contain"
+          />
         </div>
 
         {/* Right Side Boxes */}
