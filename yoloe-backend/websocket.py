@@ -56,7 +56,12 @@ class TelemetryManager:
                 try:
                     # Send appropriate data based on client type
                     message = self._format_message_for_client(self._latest_telemetry, client_type)
-                    await websocket.send_text(json.dumps(message))
+
+                    # For frontend clients, only send if we have image data
+                    if client_type == "frontend" and "image" not in message:
+                        print(f"[WebSocket] Frontend client connected, waiting for first frame...")
+                    else:
+                        await websocket.send_text(json.dumps(message))
                 except Exception as e:
                     print(f"Error sending initial telemetry: {e}")
 
@@ -297,10 +302,15 @@ class TelemetryManager:
                         try:
                             # Format message based on client type
                             message = self._format_message_for_client(telemetry_data, client_type)
+
+                            # For frontend clients, skip if no image data yet
+                            if client_type == "frontend" and "image" not in message:
+                                continue
+
                             await client.send_text(json.dumps(message))
                         except Exception as e:
                             # Client disconnected or error
-                            print(f"Error sending to client: {e}")
+                            print(f"Error sending to client ({client_type}): {e}")
                             disconnected_clients.add(client)
 
                     # Remove disconnected clients

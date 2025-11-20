@@ -258,5 +258,19 @@ async def predict_b64(payload: Base64Image):
 
 telemetry_manager = setup_websocket(app)
 
+
+@app.get("/current-detections")
+async def get_current_detections():
+    """
+    Get current detections and telemetry from the latest WebSocket frame.
+    This provides HTTP access to the real-time telemetry data.
+    """
+    if not telemetry_manager or not telemetry_manager._latest_telemetry:
+        return {"detections": [], "num_detections": 0, "labels": [], "ultrasonic": {}, "timestamp": 0, "message": "No telemetry data available yet. Make sure JetBot is connected."}
+
+    telemetry = telemetry_manager._latest_telemetry
+    return {"detections": telemetry.get("detections", []), "num_detections": telemetry.get("num_detections", 0), "labels": telemetry.get("labels", []), "ultrasonic": telemetry.get("ultrasonic", {}), "timestamp": telemetry.get("timestamp", 0)}
+
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=True)

@@ -43,12 +43,24 @@ class WebSocketTester:
             async with websockets.connect(WEBSOCKET_URL) as websocket:
                 print("Connected successfully!")
 
+                # Send initial ping
+                await websocket.send("ping")
+
                 # Start label switching task
                 label_task = asyncio.create_task(self.switch_labels_periodically(websocket))
 
                 try:
-                    async for message in websocket:
-                        await self.handle_message(websocket, message)
+                    # Use explicit receive loop instead of async for
+                    while True:
+                        try:
+                            message = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                            await self.handle_message(websocket, message)
+                        except asyncio.TimeoutError:
+                            # Send ping to keep alive
+                            await websocket.send("ping")
+                            continue
+                except KeyboardInterrupt:
+                    raise
                 finally:
                     label_task.cancel()
                     try:
