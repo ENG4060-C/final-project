@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AgentChat from "../app/agent-chat";
 
 export default function Home() {
-    const [prompts, setPrompts] = useState<string[]>(["person"]);
+    const [prompts, setPrompts] = useState<string[]>([]);
     const [inputValue, setInputValue] = useState("");
+    const wsRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
         console.log("Connecting to JetBot WebSocket…");
@@ -19,6 +20,28 @@ export default function Home() {
         ws.addEventListener("message", (event) => {
             try {
                 const msg = JSON.parse(event.data);
+
+                // Handle label events
+                if (msg.type === "event" && msg.event_type === "labels_updated") {
+                    const labels = msg.data?.labels;
+                    if (Array.isArray(labels)) {
+                        console.log("Labels updated from backend:", labels);
+                        setPrompts(labels);
+                    }
+                    return;
+                }
+
+                if (msg.type === "labels_response") {
+                    if (msg.success && Array.isArray(msg.labels)) {
+                        console.log("Labels response:", msg.labels);
+                        setPrompts(msg.labels);
+                    } else {
+                        console.warn("Label update failed:", msg.message);
+                    }
+                    return;
+                }
+
+                // Handle camera frames
                 if (msg.image) {
                     const img = document.getElementById(
                         "jetbot-camera"
@@ -36,20 +59,48 @@ export default function Home() {
 
         ws.addEventListener("close", () => {
             console.log("JetBot WS CLOSED");
+            if (wsRef.current === ws) {
+                wsRef.current = null;
+            }
         });
 
-        return () => ws.close();
+        return () => {
+            if (wsRef.current === ws) {
+                wsRef.current = null;
+            }
+            ws.close();
+        };
     }, []);
 
-    const handleAddPrompt = () => {
-        if (inputValue.trim()) {
-            setPrompts([...prompts, inputValue.trim()]);
-            setInputValue("");
+    const sendLabelsToBackend = (labels: string[]) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.warn("WS not ready, cannot send labels");
+            return;
         }
+
+        ws.send(
+            JSON.stringify({
+                type: "set_labels",
+                labels,
+            })
+        );
+    };
+
+    const handleAddPrompt = () => {
+        const trimmed = inputValue.trim();
+        if (!trimmed) return;
+
+        const newPrompts = [...prompts, trimmed];
+        setPrompts(newPrompts);
+        setInputValue("");
+        sendLabelsToBackend(newPrompts);
     };
 
     const handleRemovePrompt = (index: number) => {
-        setPrompts(prompts.filter((_, i) => i !== index));
+        const newPrompts = prompts.filter((_, i) => i !== index);
+        setPrompts(newPrompts);
+        sendLabelsToBackend(newPrompts);
     };
 
     return (
