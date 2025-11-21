@@ -39,13 +39,6 @@ director = Agent(
     - COMPLEX goals require vision or multi-step coordination (e.g., "find bottle", "scan the room", "explore", "go to X"):
       ALWAYS call initialize_mission to delegate to Observer+Pilot
     
-    CRITICAL: If the task involves FINDING, LOOKING, or VISION:
-    - "find X" → COMPLEX (use initialize_mission)
-    - "scan" → COMPLEX (use initialize_mission)
-    - "explore" → COMPLEX (use initialize_mission)
-    - "go to X" → COMPLEX (use initialize_mission)
-    - "look for X" → COMPLEX (use initialize_mission)
-    
     Only use your tools when they are referenced directly, if not, proceed to initialize a mission.
     
     Available tools for direct execution:

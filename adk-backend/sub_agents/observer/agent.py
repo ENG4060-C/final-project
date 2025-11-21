@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
-from shared_tools import get_telemetry, mission_complete, rotate_until_centered, scan_surroundings
+from shared_tools import get_bounding_box_percentage, get_telemetry, mission_complete, rotate_until_centered, scan_surroundings
 
 dotenv.load_dotenv()
 
@@ -48,13 +48,11 @@ observer = Agent(
     - rotation_degree in detections tells Pilot exactly how to turn
     - Negative rotation_degree = turn counter-clockwise (left)
     - Positive rotation_degree = turn clockwise (right)
+    
+    OBJECT ORIENTATION:
+    - Use get_bounding_box_percentage to determine the orientation of the object.
     - aspect_ratio > 1.0 = horizontal object (table, car)
     - aspect_ratio < 1.0 = vertical object (person, bottle)
-    - Larger bbox = closer to robot
-    
-    ORIENTATION FILTERING:
-    - Use orientation="vertical" for: standing people, upright bottles, doors
-    - Use orientation="horizontal" for: tables, cars, lying objects
     
     AVOID REPETITION:
     - If you just searched, WAIT for Pilot to move before searching again
@@ -73,7 +71,8 @@ observer = Agent(
     - scan_surroundings: 360° scan (CAN TAKE MULTIPLE LABELS)
     - rotate_until_centered: Center on target object (ONLY TAKES ONE LABEL)
     - mission_complete: End mission when goal achieved
+    - get_bounding_box_percentage: Get the percentage of the camera view that is covered by the bounding box of the object, grabbed either by scan_env or view_query.
     """,
-    tools=[get_telemetry, scan_surroundings, rotate_until_centered, mission_complete],
+    tools=[get_telemetry, scan_surroundings, rotate_until_centered, mission_complete, get_bounding_box_percentage],
     output_key="temp:observer_findings",
 )

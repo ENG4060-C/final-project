@@ -18,6 +18,8 @@ from schemas import (
     MovementCommand,
     QueueMovementRequest,
     RotateUntilObjectCenterRequest,
+    StartMovementRequest,
+    StartRotateRequest,
     SuccessResponse,
     HealthResponse,
     MovementResult,
@@ -214,8 +216,16 @@ class APIServer:
                     detail=f"Failed to set labels: {str(e)}"
                 )
             
-        @self.app.post("/vision/scan", response_model=Dict[str, List[str]])
+        @self.app.post("/vision/scan", response_model=Dict[str, List[Dict]])
         async def scan(body: Optional[Any] = Body(default=None)):
+            """
+            Perform a 360° scan, rotating in increments and returning detections with bounding boxes.
+            
+            Returns a dictionary mapping sector angles to lists of detections, where each detection includes:
+            - class_name: The detected object label
+            - box: Bounding box coordinates (x1, y1, x2, y2)
+            - confidence: Detection confidence score (if available)
+            """
             robot = self._get_robot()
 
             # Parse labels flexibly
@@ -340,7 +350,7 @@ class APIServer:
         @self.app.post("/stop", response_model=SuccessResponse)
         async def stop():
             """
-            Emergency stop - immediately halt all motors.
+            Stop robot with smooth deceleration.
             """
             robot = self._get_robot()
             
@@ -353,6 +363,96 @@ class APIServer:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to stop robot: {str(e)}"
+                )
+        
+        @self.app.post("/movement/start", response_model=MovementResult)
+        async def start_movement(request: StartMovementRequest):
+            """
+            Start continuous forward/backward movement.
+            
+            - **robot_speed**: Motor speed value (positive=forward, negative=backward)
+            
+            Uses smooth start and sets constant motor values that persist on the robot.
+            Returns immediately after starting.
+            """
+            robot = self._get_robot()
+            
+            try:
+                result = robot.start_movement(robot_speed=request.robot_speed)
+                return MovementResult(
+                    status=MovementStatus(result["status"]),
+                    final_ultrasonic=result["final_ultrasonic"],
+                    info=result["info"]
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to start movement: {str(e)}"
+                )
+        
+        @self.app.post("/movement/stop", response_model=SuccessResponse)
+        async def stop_movement():
+            """
+            Stop continuous movement with smooth deceleration.
+            """
+            robot = self._get_robot()
+            
+            try:
+                robot.stop()
+                return SuccessResponse(
+                    message="Movement stopped"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to stop movement: {str(e)}"
+                )
+        
+        @self.app.post("/rotation/start", response_model=MovementResult)
+        async def start_rotate(request: StartRotateRequest):
+            """
+            Start continuous rotation.
+            
+            - **robot_speed**: Motor speed value (0.3 to 1.0)
+            - **direction**: Rotation direction (positive=right/CCW, negative=left/CW)
+            
+            Uses smooth start and sets constant motor values that persist on the robot.
+            Returns immediately after starting.
+            """
+            robot = self._get_robot()
+            
+            try:
+                result = robot.start_rotate(
+                    robot_speed=request.robot_speed,
+                    direction=request.direction
+                )
+                return MovementResult(
+                    status=MovementStatus(result["status"]),
+                    final_ultrasonic=result["final_ultrasonic"],
+                    info=result["info"]
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to start rotation: {str(e)}"
+                )
+        
+        @self.app.post("/rotation/stop", response_model=SuccessResponse)
+        async def stop_rotation():
+            """
+            Stop continuous rotation with smooth deceleration.
+            """
+            robot = self._get_robot()
+            
+            try:
+                robot.stop()
+                return SuccessResponse(
+                    message="Rotation stopped"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to stop rotation: {str(e)}"
                 )
     
     def _get_robot(self) -> RobotController:
