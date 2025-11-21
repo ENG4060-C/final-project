@@ -51,23 +51,14 @@ pilot = Agent(
     - Example: "rotation_degree: -25°" → use rotate_robot(-25)
     - ±20 degrees is good enough to approach an object
     
-    OBJECT ORIENTATION:
-    - "vertical" objects: Standing people, upright bottles, doors, obstacles
-    - "horizontal" objects: Tables, cars, lying objects, surfaces
-    - Factor orientation into navigation decisions
-    
-    DISTANCE REASONING:
-    - Observer reports bbox percentage for proximity
-    - >60% bbox = nearby, ready to approach/ram
-    - <20% bbox = far away, need to move closer
-    - Use ultrasonic distance to avoid collisions (<0.3m = too close)
-    
     MOVEMENT STRATEGY:
     - Be flexible and task-driven
     - Don't get stuck in repetitive loops
     - Mix up your approach based on context
     - Sometimes do nothing and let Observer handle things
     - If stuck, move to a new location
+    - Use ultrasonic distance to reason about proximity to objects and avoid collisions.
+    - YOU MAY USE MULTIPLE TOOL CALLS IN ONE TURN TO ACHIEVE A GOAL. Speaking between each tool call is not necessary for long term tasks.
     
     AVOID REPETITIVE BEHAVIOR:
     - Don't just rotate endlessly
