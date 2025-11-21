@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image'
 
 export default function Home() {
-  const [prompts, setPrompts] = useState<string[]>(['person']);
+  const [prompts, setPrompts] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
 
   // Camera fram from YOLOE
@@ -149,7 +149,7 @@ export default function Home() {
       {/* Main Content Area */}
       <div className="flex-1 flex gap-4 p-4 bg-black">
         {/* Left Side Boxes */}
-        <div className="flex flex-col gap-4 flex-1 max-h-[615px]">
+        <div className="flex flex-col gap-4 flex-1">
           {/* Box 1 */}
           <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -268,16 +268,16 @@ export default function Home() {
         </div>
 
         {/* Center Camera/Video Feed */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center flex-[1.5]">
           <img
             src={cameraSrc}
-            className="bg-black w-[700px] h-[615px] rounded-lg object-contain"
+            className="bg-black w-full h-full rounded-lg object-contain"
             alt="JetBot camera"
           />
         </div>
 
         {/* Right Side Boxes */}
-        <div className="flex flex-col gap-4 flex-1 max-h-[615px]">
+        <div className="flex flex-col gap-4 flex-1">
           <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex items-center justify-center overflow-hidden">
             <Image
               src="/hacker.gif"
@@ -291,6 +291,7 @@ export default function Home() {
           <div className="bg-zinc-950 border border-green-500/30 rounded-lg p-4 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-green-400 text-sm font-semibold">SUBTITLES</h2>
+              <span className="text-green-400 text-xs">● ENG</span>
             </div>
             <div className="flex-1 overflow-y-auto">
               {/* Subtitles content will go here */}
