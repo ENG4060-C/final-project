@@ -2,16 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import AgentChat from "../app/agent-chat";
+import { useWASDControls } from './keyControls';
+
+const JETBOT_API_BASE = 'http://localhost:8000';
 
 export default function Home() {
     const [prompts, setPrompts] = useState<string[]>([]);
     const [inputValue, setInputValue] = useState("");
     const wsRef = useRef<WebSocket | null>(null);
 
+    // speed sliders
+    const [linearSpeed, setLinearSpeed] = useState(0.7);
+    const [angularSpeed, setAngularSpeed] = useState(0.5);
+
     useEffect(() => {
         console.log("Connecting to JetBot WebSocket…");
 
-        const ws = new WebSocket("ws://localhost:8002/ws/telemetry");
+        const ws = new WebSocket('ws://localhost:8002/ws/telemetry');
+        wsRef.current = ws;
 
         ws.addEventListener("open", () => {
             console.log("JetBot WS CONNECTED");
@@ -102,6 +110,23 @@ export default function Home() {
         setPrompts(newPrompts);
         sendLabelsToBackend(newPrompts);
     };
+
+    async function handleEmergencyStop() {
+      try {
+        await Promise.all([
+          fetch(`${JETBOT_API_BASE}/movement/stop`, { method: 'POST' }),
+          fetch(`${JETBOT_API_BASE}/rotation/stop`, { method: 'POST' }),
+        ]);
+      } catch (err) {
+        console.error('Error calling emergency stop:', err);
+      }
+    }
+
+    // WASD control
+    useWASDControls({
+      linearSpeed,
+      angularSpeed,
+    });
 
     return (
         <div className="min-h-screen flex flex-col font-mono bg-black" y-1>
