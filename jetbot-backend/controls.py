@@ -811,7 +811,7 @@ class RobotController:
             }
         }
     
-    def start_movement(self, robot_speed: float = 0.5) -> Dict[str, Any]:
+    def start_movement(self, robot_speed: float = 0.5) -> Dict[str, any]:
         """
         Start continuous forward/backward movement.
         Uses smooth start, then sets constant motor values that persist on the robot.
@@ -917,7 +917,7 @@ class RobotController:
             }
         }
     
-    def start_rotate(self, robot_speed: float = 0.4, direction: float = 1.0) -> Dict[str, Any]:
+    def start_rotate(self, robot_speed: float = 0.4, direction: float = 1.0) -> Dict[str, any]:
         """
         Start continuous rotation.
         Uses smooth start, then sets constant motor values that persist on the robot.
