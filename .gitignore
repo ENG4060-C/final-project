@@ -13,12 +13,6 @@ frontend/build/
 frontend/build/*
 frontend/dist/
 frontend/dist/*
-frontend/public/
-frontend/public/*
-frontend/public/images/
-frontend/public/images/*
-frontend/public/images/logo.png
-frontend/public/images/logo.png
 __pycache__/
 __pycache__/*
 .ipynb_checkpoints/
