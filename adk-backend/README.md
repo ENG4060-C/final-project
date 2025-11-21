@@ -10,18 +10,36 @@ Multi-agent system for controlling the JetBot using Google ADK.
 
 ## Running the System
 
-### Option 1: Using ADK Web UI (Recommended)
+### Option 1: ADK API Server + Frontend (Recommended)
+
+**Terminal 1 - ADK API:**
 
 ```bash
 cd adk-backend
-adk web app:root_agent
+./run_api.sh
 ```
 
-This opens a web interface at `http://localhost:8000` (or specified port).
+This starts the ADK API server on port 8003.
 
-**Note**: Agents have `get_telemetry` tool to fetch real-time sensor data when needed.
+**Terminal 2 - Frontend:**
 
-### Option 2: Using Custom CLI with Auto-Telemetry
+```bash
+cd frontend
+npm run dev
+```
+
+Then open `http://localhost:3000` and use the Agent Chat panel on the right.
+
+### Option 2: Using ADK Web UI
+
+```bash
+cd adk-backend
+adk web app:root_agent --port 8003
+```
+
+This opens the ADK web interface at `http://localhost:8003`.
+
+### Option 3: Using Custom CLI with Auto-Telemetry
 
 ```bash
 cd adk-backend
