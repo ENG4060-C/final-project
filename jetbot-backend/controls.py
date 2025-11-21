@@ -85,6 +85,10 @@ class RobotController:
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._websocket_event_loop: Optional[asyncio.AbstractEventLoop] = None
         
+        # Store current motor values for smooth stop
+        self._current_left_motor: float = 0.0
+        self._current_right_motor: float = 0.0
+        
         # Start WebSocket client (handles both sending frames and receiving detections)
         self.start_websocket_client()
     
@@ -807,6 +811,181 @@ class RobotController:
             }
         }
     
+    def start_movement(self, robot_speed: float = 0.5) -> Dict[str, Any]:
+        """
+        Start continuous forward/backward movement.
+        Uses smooth start, then sets constant motor values that persist on the robot.
+        
+        Args:
+            robot_speed: Motor speed value (positive = forward, negative = backward)
+                        Range: -1.0 to 1.0, but clamped to MIN_MOTOR_VALUE to MAX_MOTOR_VALUE
+        
+        Returns:
+            dict: Status dictionary with movement info
+        """
+        PRINT_PREFIX = "[START_MOVEMENT]"
+        PREFIX_COLOR = "\033[92m"
+        PREFIX_RESET = "\033[0m"
+        
+        # Clamp motor speed to valid range
+        motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
+        direction = 1 if robot_speed >= 0 else -1
+        motor_value_signed = motor_value * direction
+        
+        # Calculate base motor values
+        base_left_motor = motor_value * direction
+        base_right_motor = motor_value * direction
+        
+        # Calculate offset to apply (accounting for overflow)
+        if direction > 0:
+            offset_to_apply = LEFT_MOTOR_OFFSET
+            if motor_value + LEFT_MOTOR_OFFSET > 1.0:
+                overflow = motor_value + LEFT_MOTOR_OFFSET - 1.0
+                offset_to_apply = LEFT_MOTOR_OFFSET - overflow
+        else:
+            offset_to_apply = -LEFT_MOTOR_OFFSET
+            if -motor_value - LEFT_MOTOR_OFFSET < -1.0:
+                overflow = abs(-motor_value - LEFT_MOTOR_OFFSET + 1.0)
+                offset_to_apply = -LEFT_MOTOR_OFFSET + overflow
+        
+        # Calculate final motor values with offset
+        left_motor = base_left_motor + offset_to_apply
+        right_motor = base_right_motor
+        
+        # Handle overflow by adjusting right motor
+        if left_motor > 1.0:
+            overflow = left_motor - 1.0
+            left_motor = 1.0
+            right_motor = max(0.0, motor_value - overflow) * direction
+        elif left_motor < -1.0:
+            overflow = abs(left_motor + 1.0)
+            left_motor = -1.0
+            right_motor = min(0.0, -motor_value + overflow) * direction
+        
+        # Store current motor values for smooth stop
+        self._current_left_motor = left_motor
+        self._current_right_motor = right_motor
+        
+        # Ultrasonic safety check for forward movement (before starting)
+        if direction > 0:
+            is_safe, _ = self._check_ultrasonic_safety()
+            if not is_safe:
+                final_distance = self.ultrasonic.read_distance()
+                return {
+                    "status": "safety",
+                    "final_ultrasonic": final_distance,
+                    "info": {
+                        "robot_speed": robot_speed,
+                        "direction": direction
+                    }
+                }
+        
+        # Calculate acceleration time (use a reasonable default)
+        acceleration_time = max(MIN_ACCEL_DECEL_TIME, 0.2)
+        
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Starting continuous movement "
+              f"(speed={motor_value_signed:+.2f}, direction={'forward' if direction > 0 else 'backward'}){PREFIX_RESET}")
+        
+        # Smooth acceleration phase
+        acceleration_complete = self._smooth_start(
+            left_motor, right_motor, acceleration_time,
+            left_offset=offset_to_apply,
+            check_safety=(direction > 0)
+        )
+        
+        if not acceleration_complete:
+            final_distance = self.ultrasonic.read_distance()
+            return {
+                "status": "safety",
+                "final_ultrasonic": final_distance,
+                "info": {
+                    "robot_speed": robot_speed,
+                    "direction": direction
+                }
+            }
+        
+        # Set constant motor values (will persist on robot)
+        self.robot.left_motor.value = left_motor
+        self.robot.right_motor.value = right_motor
+        
+        return {
+            "status": "started",
+            "final_ultrasonic": self.ultrasonic.read_distance(),
+            "info": {
+                "robot_speed": robot_speed,
+                "direction": direction
+            }
+        }
+    
+    def start_rotate(self, robot_speed: float = 0.4, direction: float = 1.0) -> Dict[str, Any]:
+        """
+        Start continuous rotation.
+        Uses smooth start, then sets constant motor values that persist on the robot.
+        
+        Args:
+            robot_speed: Motor speed value (0.3 to 1.0)
+            direction: Rotation direction (positive = right/CCW, negative = left/CW)
+        
+        Returns:
+            dict: Status dictionary with rotation info
+        """
+        PRINT_PREFIX = "[START_ROTATE]"
+        PREFIX_COLOR = "\033[95m"
+        PREFIX_RESET = "\033[0m"
+        
+        # Clamp motor speed to valid range
+        motor_value = max(MIN_MOTOR_VALUE, min(abs(robot_speed), MAX_MOTOR_VALUE))
+        
+        # Set motor values based on direction
+        if direction > 0:
+            # Right/CCW rotation
+            left_motor = motor_value
+            right_motor = -motor_value
+        else:
+            # Left/CW rotation
+            left_motor = -motor_value
+            right_motor = motor_value
+        
+        # Store current motor values for smooth stop
+        self._current_left_motor = left_motor
+        self._current_right_motor = right_motor
+        
+        # Calculate acceleration time (use a reasonable default)
+        acceleration_time = max(MIN_ACCEL_DECEL_TIME, 0.2)
+        
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Starting continuous rotation "
+              f"(speed={motor_value:.2f}, direction={'right/CCW' if direction > 0 else 'left/CW'}){PREFIX_RESET}")
+        
+        # Smooth acceleration phase (no safety check for rotation)
+        acceleration_complete = self._smooth_start(
+            left_motor, right_motor, acceleration_time,
+            left_offset=0.0,
+            check_safety=False
+        )
+        
+        if not acceleration_complete:
+            return {
+                "status": "error",
+                "final_ultrasonic": self.ultrasonic.read_distance(),
+                "info": {
+                    "robot_speed": robot_speed,
+                    "direction": direction
+                }
+            }
+        
+        # Set constant motor values (will persist on robot)
+        self.robot.left_motor.value = left_motor
+        self.robot.right_motor.value = right_motor
+        
+        return {
+            "status": "started",
+            "final_ultrasonic": self.ultrasonic.read_distance(),
+            "info": {
+                "robot_speed": robot_speed,
+                "direction": direction
+            }
+        }
+    
     async def set_labels(self, labels: List[str]):
         """
         Overwrite YOLO-E labels on the backend
@@ -1109,10 +1288,39 @@ class RobotController:
                 time.sleep(0.5)
     
     def stop(self):
-        """Stop motors and WebSocket client."""
-        self.robot.stop()
-        self.stop_websocket_client()
-        print("[STOP] Motors stopped")
+        """Stop motors with smooth deceleration using stored motor values."""
+        PRINT_PREFIX = "[STOP]"
+        PREFIX_COLOR = "\033[91m"
+        PREFIX_RESET = "\033[0m"
+        
+        # Read current motor values from robot (in case they were changed externally)
+        try:
+            current_left = float(self.robot.left_motor.value)
+            current_right = float(self.robot.right_motor.value)
+        except:
+            # Fallback to stored values
+            current_left = self._current_left_motor
+            current_right = self._current_right_motor
+        
+        # Use smooth stop with deceleration time
+        deceleration_time = max(MIN_ACCEL_DECEL_TIME, 0.2)
+        direction = 1 if current_left >= 0 else -1
+        
+        # Determine if this was forward movement (for safety checks)
+        # Forward movement: both motors same sign and positive, or left motor positive
+        is_forward = (current_left > 0 and current_right > 0) or (abs(current_left) > abs(current_right) and current_left > 0)
+        
+        self._smooth_stop(
+            current_left,
+            current_right,
+            deceleration_time,
+            check_safety=is_forward
+        )
+        print(f"{PREFIX_COLOR}{PRINT_PREFIX} Stopped with smooth deceleration{PREFIX_RESET}")
+        
+        # Reset stored values
+        self._current_left_motor = 0.0
+        self._current_right_motor = 0.0
     
     def start_websocket_client(self):
         """Start WebSocket client to receive detection updates from yoloe-backend."""
