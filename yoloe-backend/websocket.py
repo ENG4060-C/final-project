@@ -32,6 +32,7 @@ class TelemetryManager:
         self._telemetry_lock = asyncio.Lock()
         self._broadcast_task: Optional[asyncio.Task] = None
         self._broadcast_running = False
+        self._filter_labels: list[str] = []  # Empty list = show all detections
 
     async def connect_websocket(self, websocket: WebSocket, client_type: str = "frontend"):
         """
@@ -150,11 +151,24 @@ class TelemetryManager:
                 from main import get_detector
 
                 labels = message.get("labels", [])
+                
+                # Update filter labels
+                self._filter_labels = labels
+                print(f"Filter labels updated: {self._filter_labels}")
+                
+                # Also update detector labels (keep existing functionality)
                 detector = get_detector()
                 result = detector.set_labels(labels)
                 if result["success"]:
                     await self.broadcast_event("labels_updated", {"labels": detector.get_labels()})
-                await websocket.send_text(json.dumps({"type": "labels_response", "success": result["success"], "labels": result.get("labels", []), "message": result.get("message", "")}))
+                
+                # Send confirmation back to frontend
+                await websocket.send_text(json.dumps({
+                    "type": "labels_response",
+                    "success": result["success"],
+                    "labels": result.get("labels", []),
+                    "message": result.get("message", "")
+                }))
 
     def _format_message_for_client(self, telemetry: Dict[str, Any], client_type: str) -> Dict[str, Any]:
         """
@@ -205,13 +219,16 @@ class TelemetryManager:
             detector = get_detector()
             detection_result = detector.predict_pil(pil_image)
 
+            # Filter detections based on filter labels
+            filtered_detections = self._filter_detections(detection_result["detections"])
+
             # Convert PIL to numpy array for OpenCV
             image_np = np.array(pil_image)
             # Convert RGB to BGR for OpenCV
             image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
 
-            # Draw bounding boxes on image
-            annotated_image = self._draw_detections(image_bgr, detection_result["detections"])
+            # Draw bounding boxes on image (using filtered detections)
+            annotated_image = self._draw_detections(image_bgr, filtered_detections)
 
             # Encode annotated image as JPEG
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # 85% quality
@@ -223,8 +240,8 @@ class TelemetryManager:
                 "timestamp": time.time(),
                 "ultrasonic": telemetry.get("ultrasonic", {}),
                 "motors": telemetry.get("motors", {}),
-                "detections": detection_result["detections"],
-                "num_detections": detection_result["num_detections"],
+                "detections": filtered_detections,  # Use filtered detections
+                "num_detections": len(filtered_detections),  # Update count
                 "model": detection_result["model"],
                 "labels": detector.get_labels(),  # Include current labels
                 "image": annotated_image_b64,  # Annotated image with bounding boxes
@@ -235,13 +252,39 @@ class TelemetryManager:
             async with self._telemetry_lock:
                 self._latest_telemetry = combined_telemetry
 
-            # Return detection results (JSON format for JetBot)
+            # Return detection results (JSON format for JetBot) with filtered detections
+            detection_result["detections"] = filtered_detections
+            detection_result["num_detections"] = len(filtered_detections)
             return detection_result
 
         except Exception as e:
             print(f"Error processing JetBot frame: {e}")
             # Return error response instead of raising HTTPException (WebSocket can't use HTTPException)
             return {"detections": [], "num_detections": 0, "model": {"name": "error", "device": "unknown"}, "error": f"Failed to process frame: {str(e)}"}
+
+    def _filter_detections(self, detections: list) -> list:
+        """
+        Filter detections based on filter labels.
+        
+        Args:
+            detections: List of detection dictionaries with class_name
+            
+        Returns:
+            Filtered list of detections
+        """
+        # If no filter labels, return all detections
+        if not self._filter_labels:
+            return detections
+        
+        # Filter detections - case insensitive partial matching
+        filtered = []
+        for det in detections:
+            class_name = det.get("class_name", "").lower()
+            # Check if any filter label matches the detection class name
+            if any(label.lower() in class_name for label in self._filter_labels):
+                filtered.append(det)
+        
+        return filtered
 
     def _draw_detections(self, image: np.ndarray, detections: list) -> np.ndarray:
         """

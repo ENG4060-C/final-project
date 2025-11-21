@@ -248,6 +248,8 @@ class MovementStatus(str, Enum):
     INVALID_MOVEMENT = "invalid_movement"
     FOUND = "found"
     NOT_FOUND = "not_found"
+    STARTED = "started"
+    ERROR = "error"
 
 
 class MovementResult(BaseModel):
@@ -255,4 +257,43 @@ class MovementResult(BaseModel):
     status: MovementStatus = Field(..., description="Status of the movement")
     final_ultrasonic: Optional[float] = Field(None, description="Final ultrasonic reading in meters")
     info: dict = Field(..., description="Movement parameters that were executed")
+
+
+class StartMovementRequest(BaseModel):
+    """Request model for start_movement endpoint."""
+    robot_speed: float = Field(
+        ...,
+        description="Motor speed value (positive=forward, negative=backward)",
+        ge=-MAX_MOTOR_VALUE,
+        le=MAX_MOTOR_VALUE
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "robot_speed": 0.5
+            }
+        }
+
+
+class StartRotateRequest(BaseModel):
+    """Request model for start_rotate endpoint."""
+    robot_speed: float = Field(
+        default=0.4,
+        description="Motor speed value",
+        ge=MIN_MOTOR_VALUE,
+        le=MAX_MOTOR_VALUE
+    )
+    direction: float = Field(
+        default=1.0,
+        description="Rotation direction (positive=right/CCW, negative=left/CW)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "robot_speed": 0.4,
+                "direction": 1.0
+            }
+        }
 
