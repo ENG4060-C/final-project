@@ -1012,10 +1012,10 @@ class RobotController:
         except Exception as e:
             raise RuntimeError(f"Failed to send set_labels message: {e}")
         
-    def scan(self, labels: List[str], step_degrees: float = 45, idle_time: float = 1.5) -> Dict[str, List[str]]:
+    def scan(self, labels: List[str], step_degrees: float = 45, idle_time: float = 1.5) -> Dict[str, List[Dict]]:
         """
         Perform a 360° scan, rotates in increments 
-        and builds a dictionary mapping of labels seen in each sector
+        and builds a dictionary mapping of labels and bounding boxes seen in each sector
 
         Args:
             labels: Label list to set on the backend before scanning
@@ -1023,7 +1023,22 @@ class RobotController:
             idle_time: Time in seconds to wait at each step for detections (default 1.0)
 
         Returns:
-            dict: { "sector_<angle>": [list of detected labels], ... }
+            dict: { 
+                "sector_<angle>": [
+                    {
+                        "class_name": str,
+                        "box": {
+                            "x1": float,
+                            "y1": float,
+                            "x2": float,
+                            "y2": float
+                        },
+                        "confidence": float (if available)
+                    },
+                    ...
+                ],
+                ...
+            }
         """
         # Push labels
         try:
@@ -1054,7 +1069,7 @@ class RobotController:
             print("[SCAN] No detection data, waiting for initial feed...")
             time.sleep(1.0)
 
-        results: Dict[str, List[str]] = {}
+        results: Dict[str, List[Dict]] = {}
         current_angle = 0.0
         total_steps = int(360 / abs(step_degrees))
 
@@ -1067,16 +1082,24 @@ class RobotController:
             self.rotate(step_degrees, robot_speed=0.75)
             time.sleep(idle_time)
 
-            # Collect labels
+            # Collect detections with labels and bounding boxes
             dets = (self.latest_detections or {}).get("detections", [])
-            sector_labels: List[str] = []
+            sector_detections: List[Dict] = []
             for det in dets:
-                name = det.get("class_name")
-                if name:
-                    sector_labels.append(name)
+                class_name = det.get("class_name")
+                if class_name:
+                    detection_info = {
+                        "class_name": class_name,
+                        "box": det.get("box", {})
+                    }
+                    # Include confidence if available
+                    if "confidence" in det:
+                        detection_info["confidence"] = det.get("confidence")
+                    sector_detections.append(detection_info)
                     
-            results[sector] = sector_labels
-            print(f"[SCAN] {sector}: {sector_labels if sector_labels else 'No detections'}")
+            results[sector] = sector_detections
+            label_names = [d["class_name"] for d in sector_detections]
+            print(f"[SCAN] {sector}: {label_names if label_names else 'No detections'}")
 
             current_angle += step_degrees
 

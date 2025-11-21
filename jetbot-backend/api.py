@@ -216,8 +216,16 @@ class APIServer:
                     detail=f"Failed to set labels: {str(e)}"
                 )
             
-        @self.app.post("/vision/scan", response_model=Dict[str, List[str]])
+        @self.app.post("/vision/scan", response_model=Dict[str, List[Dict]])
         async def scan(body: Optional[Any] = Body(default=None)):
+            """
+            Perform a 360° scan, rotating in increments and returning detections with bounding boxes.
+            
+            Returns a dictionary mapping sector angles to lists of detections, where each detection includes:
+            - class_name: The detected object label
+            - box: Bounding box coordinates (x1, y1, x2, y2)
+            - confidence: Detection confidence score (if available)
+            """
             robot = self._get_robot()
 
             # Parse labels flexibly
